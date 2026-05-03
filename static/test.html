@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monica Medical AI — 功能测试台</title>
+  <style>
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #252836; --border: #2e3347;
+      --accent: #4f8ef7; --accent2: #7c5cfc; --green: #34d399;
+      --red: #f87171; --yellow: #fbbf24; --text: #e2e8f0;
+      --text2: #94a3b8; --text3: #64748b; --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 0 28px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon { width: 30px; height: 30px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+    .logo h1 { font-size: 15px; font-weight: 600; }
+    .logo span { color: var(--text3); font-size: 12px; margin-left: 4px; }
+    #serverStatus { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); transition: background .3s; }
+    .dot.online  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.offline { background: var(--red); }
+
+    .layout { display: flex; height: calc(100vh - 56px); }
+
+    nav { width: 210px; background: var(--bg2); border-right: 1px solid var(--border); padding: 12px 0; flex-shrink: 0; overflow-y: auto; }
+    .nav-sec { padding: 10px 14px 3px; color: var(--text3); font-size: 10px; text-transform: uppercase; letter-spacing: .8px; }
+    .nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 14px; cursor: pointer; border-left: 3px solid transparent; font-size: 13px; color: var(--text2); transition: all .15s; }
+    .nav-item:hover { background: var(--bg3); color: var(--text); }
+    .nav-item.active { background: rgba(79,142,247,.1); border-left-color: var(--accent); color: var(--accent); }
+    .nav-item .icon { width: 18px; text-align: center; font-size: 14px; }
+
+    main { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .page { display: none; flex-direction: column; gap: 16px; }
+    .page.active { display: flex; }
+
+    .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .panel-head { padding: 12px 18px; border-bottom: 1px solid var(--border); background: var(--bg3); display: flex; align-items: center; gap: 8px; }
+    .panel-head h2 { font-size: 13px; font-weight: 600; }
+    .panel-head .sub { margin-left: auto; font-size: 11px; color: var(--text3); font-family: monospace; }
+    .panel-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+
+    .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 130px; }
+    label { font-size: 11px; color: var(--text2); font-weight: 500; }
+    input, textarea, select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 10px; font-size: 12px; font-family: inherit; transition: border-color .15s; outline: none; width: 100%; }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(79,142,247,.12); }
+    textarea { resize: vertical; min-height: 72px; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+    .btn { padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; transition: all .15s; white-space: nowrap; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #3b7de8; }
+    .btn-success { background: #064e3b; color: var(--green); border: 1px solid #065f46; }
+    .btn-success:hover:not(:disabled) { background: #065f46; }
+    .btn-danger  { background: #450a0a; color: var(--red);   border: 1px solid #7f1d1d; }
+    .btn-danger:hover:not(:disabled)  { background: #7f1d1d; }
+    .btn-ghost   { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+    .btn-ghost:hover:not(:disabled)   { background: var(--bg3); color: var(--text); }
+    .btn-sm { padding: 4px 9px; font-size: 11px; }
+
+    .dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 28px 18px; text-align: center; cursor: pointer; transition: all .2s; position: relative; }
+    .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: rgba(79,142,247,.04); }
+    .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .dropzone .dz-icon { font-size: 28px; margin-bottom: 6px; }
+    .dropzone .dz-text { font-size: 13px; color: var(--text2); }
+    .dropzone .dz-hint { font-size: 11px; color: var(--text3); margin-top: 3px; }
+
+    .progress-bar { height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 3px; transition: width .3s; width: 0; }
+
+    .log-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; max-height: 280px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; line-height: 1.65; color: #a8b8d8; }
+    .log-box .ok   { color: var(--green); }
+    .log-box .err  { color: var(--red); }
+    .log-box .warn { color: var(--yellow); }
+    .log-box .info { color: var(--accent); }
+    .log-box .dim  { color: var(--text3); }
+
+    .sse-log { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 11px; }
+    .sse-line { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid #1a1f2e; }
+    .sse-ts   { color: var(--text3); flex-shrink: 0; }
+    .sse-evt  { color: var(--accent2); flex-shrink: 0; min-width: 78px; }
+    .sse-dat  { color: var(--text); word-break: break-all; }
+    .sse-dat.done  { color: var(--green); }
+    .sse-dat.error { color: var(--red); }
+    .sse-dat.dim   { color: var(--text3); }
+
+    .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+    .chip.pending    { background: rgba(251,191,36,.1);  color: var(--yellow); }
+    .chip.processing { background: rgba(79,142,247,.1);  color: var(--accent); }
+    .chip.done       { background: rgba(52,211,153,.1);  color: var(--green); }
+    .chip.error      { background: rgba(248,113,113,.1); color: var(--red); }
+    .chip.rejected   { background: rgba(249,115,22,.1);  color: #f97316; }
+
+    .tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 16px; }
+    .tab { padding: 9px 14px; font-size: 12px; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; padding: 16px; }
+    .tab-content.active { display: block; }
+
+    .result-sec h4 { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; }
+    .finding-item { background: var(--bg3); border-radius: 6px; padding: 9px 12px; font-size: 12px; margin-bottom: 5px; border-left: 3px solid var(--accent); }
+    .nodule-card { background: var(--bg3); border-radius: 7px; padding: 11px; margin-bottom: 7px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+    .nodule-field label { color: var(--text3); display: block; font-size: 10px; margin-bottom: 2px; }
+    .nodule-field span  { color: var(--text); font-weight: 500; font-size: 12px; }
+
+    .token-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .token-card { background: var(--bg3); border-radius: 7px; padding: 12px; border: 1px solid var(--border); text-align: center; }
+    .token-card .val { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .token-card .key { font-size: 10px; color: var(--text3); margin-top: 3px; }
+
+    .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+    @media (min-width: 800px) { .info-grid { grid-template-columns: repeat(4, 1fr); } }
+    .info-cell { background: var(--bg3); border-radius: 7px; padding: 11px; border: 1px solid var(--border); }
+    .info-cell .ilabel { font-size: 10px; color: var(--text3); margin-bottom: 3px; }
+    .info-cell .ivalue { font-size: 15px; font-weight: 600; }
+
+    .slice-gallery { display: flex; flex-wrap: wrap; gap: 8px; }
+    .slice-card { background: var(--bg3); border-radius: 7px; overflow: hidden; border: 1px solid var(--border); width: 150px; transition: border-color .15s; }
+    .slice-card:hover { border-color: var(--accent); }
+    .slice-card img { width: 100%; display: block; background: #000; }
+    .slice-card .sc-info { padding: 7px; font-size: 10px; color: var(--text2); }
+    .slice-card .sc-rank { font-size: 12px; font-weight: 600; color: var(--accent); }
+
+    .file-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; background: var(--bg3); border-radius: 6px; font-size: 12px; margin-top: 6px; }
+    .file-item .fn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-item .fs { color: var(--text3); font-size: 11px; white-space: nowrap; }
+
+    .tag { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 4px; font-size: 11px; background: rgba(79,142,247,.12); color: var(--accent); border: 1px solid rgba(79,142,247,.2); }
+
+    #toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; font-size: 12px; display: none; z-index: 9999; box-shadow: 0 4px 20px rgba(0,0,0,.4); max-width: 300px; }
+    #toast.show { display: flex; align-items: center; gap: 8px; animation: fadeIn .2s; }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform: translateY(0); } }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .stage-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .stage-name { min-width: 90px; font-weight: 500; }
+    .stage-status { min-width: 50px; }
+    .stage-ms { color: var(--text3); margin-left: auto; font-family: monospace; }
+    hr { border: none; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🏥</div>
+    <h1>Monica Medical AI</h1>
+    <span>功能测试台</span>
+  </div>
+  <div id="serverStatus">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">检查服务...</span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav>
+    <div class="nav-sec">基础</div>
+    <div class="nav-item active" onclick="switchPage('health',this)"><span class="icon">🔍</span>健康检查</div>
+    <div class="nav-item" onclick="switchPage('auth',this)"><span class="icon">🔑</span>身份认证</div>
+    <div class="nav-sec">文件</div>
+    <div class="nav-item" onclick="switchPage('upload',this)"><span class="icon">📤</span>分片上传</div>
+    <div class="nav-sec">分析</div>
+    <div class="nav-item" onclick="switchPage('analysis',this)"><span class="icon">🧬</span>创建任务</div>
+    <div class="nav-item" onclick="switchPage('stream',this)"><span class="icon">📡</span>SSE 进度</div>
+    <div class="nav-item" onclick="switchPage('result',this)"><span class="icon">📋</span>查看报告</div>
+    <div class="nav-sec">工具</div>
+    <div class="nav-item" onclick="switchPage('quota',this)"><span class="icon">⚡</span>配额状态</div>
+    <div class="nav-item" onclick="switchPage('raw',this)"><span class="icon">🛠</span>原始请求</div>
+  </nav>
+
+  <main>
+
+    <!-- ══ HEALTH ══ -->
+    <div class="page active" id="page-health">
+      <div class="panel">
+        <div class="panel-head"><span>🔍</span><h2>服务健康检查</h2><span class="sub">GET /health</span></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="field">
+              <label>API 服务器地址</label>
+              <input id="baseUrl" value="http://localhost:8000" />
+            </div>
+            <button class="btn btn-primary" onclick="checkHealth()">▶ 检查连接</button>
+            <button class="btn btn-ghost btn-sm" onclick="copyBase()">复制</button>
+          </div>
+          <div class="info-grid">
+            <div class="info-cell"><div class="ilabel">服务状态</div><div class="ivalue" id="h-status">—</div></div>
+            <div class="info-cell"><div class="ilabel">版本</div><div class="ivalue" id="h-ver">—</div></div>
+            <div class="info-cell"><div class="ilabel">磁盘剩余</div><div class="ivalue" id="h-free">—</div></div>
+            <div class="info-cell"><div class="ilabel">磁盘使用率</div><div class="ivalue" id="h-pct">—</div></div>
+          </div>
+          <div class="log-box" id="healthLog">等待检查...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ AUTH ══ -->
+    <div class="page" id="page-auth">
+      <div class="panel">
+        <div class="panel-head"><span>🔑</span><h2>微信登录 / JWT</h2><span class="sub">POST /auth/wx_login</span></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="field">
+              <label>微信 code（开发模式可填任意字符串）</label>
+              <input id="wxCode" value="test_code_dev_001" />
+            </div>
+            <button class="btn btn-primary" onclick="doLogin()">🔑 登录</button>
+          </div>
+          <div class="row" style="align-items:flex-end">
+            <div class="field">
+              <label>当前 Token（自动填入，可手动编辑）</label>
+              <input id="jwtToken" placeholder="登录后自动填入" style="font-family:monospace;font-size:10px" />
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="copyToken()">复制</button>
+            <button class="btn btn-danger btn-sm" onclick="clearToken()">清除</button>
+          </div>
+          <div class="log-box" id="authLog">等待操作...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ UPLOAD ══ -->
+    <div class="page" id="page-upload">
+      <div class="panel">
+        <div class="panel-head"><span>📤</span><h2>分片文件上传</h2><span class="sub">init → chunk×N → complete</span></div>
+        <div class="panel-body">
+          <div class="dropzone" id="dropzone">
+            <input type="file" id="fileInput" onchange="onFileSelected(this)" />
+            <div class="dz-icon">📂</div>
+            <div class="dz-text">拖拽文件到此处，或点击选择</div>
+            <div class="dz-hint">支持 DICOM (.dcm)、ZIP 压缩包、图像 · 最大 500MB</div>
+          </div>
+          <div id="fileInfo" style="display:none">
+            <div class="file-item">
+              <span>📄</span>
+              <span class="fn" id="upName"></span>
+              <span class="fs" id="upSize"></span>
+              <button class="btn btn-ghost btn-sm" onclick="clearFile()">✕</button>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+              <span style="font-size:11px;color:var(--text2)">上传进度</span>
+              <span style="font-size:11px;color:var(--text2)" id="upPctLabel">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="upBar"></div></div>
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" id="btnUpload" onclick="startUpload()" disabled>▶ 开始上传</button>
+            <button class="btn btn-ghost btn-sm" onclick="checkChunks()">查询断点</button>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Upload ID</label>
+              <input id="uploadId" placeholder="上传后自动填入" style="font-family:monospace;font-size:10px" />
+            </div>
+            <div class="field">
+              <label>File ID (SHA256 前缀)</label>
+              <input id="fileId" placeholder="完成后自动填入" style="font-family:monospace;font-size:10px" />
+            </div>
+          </div>
+          <div class="log-box" id="upLog">等待操作...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ ANALYSIS ══ -->
+    <div class="page" id="page-analysis">
+      <div class="panel">
+        <div class="panel-head"><span>🧬</span><h2>创建分析任务</h2><span class="sub">POST /analysis/create</span></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="field">
+              <label>File ID</label>
+              <input id="anaFileId" placeholder="填入 file_id" />
+            </div>
+            <div class="field" style="max-width:120px">
+              <label>扫描类型</label>
+              <select id="scanType">
+                <option>CT</option><option>MRI</option><option>PET</option><option>X-RAY</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:170px">
+              <label>LLM 模型</label>
+              <select id="llmModel">
+                <option value="">默认降级链</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label>临床备注（可选）</label>
+            <input id="clinicalNotes" placeholder="如：患者吸烟史20年，近期咳嗽加剧" />
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" onclick="createAnalysis()">🚀 创建任务</button>
+            <button class="btn btn-ghost btn-sm" onclick="syncFileId()">← 同步 File ID</button>
+            <button class="btn btn-ghost btn-sm" onclick="pollStatus()">↻ 刷新状态</button>
+          </div>
+          <div class="row" style="align-items:flex-end">
+            <div class="field">
+              <label>Task ID</label>
+              <input id="taskId" placeholder="创建后自动填入" style="font-family:monospace;font-size:10px" />
+            </div>
+            <span id="taskStatusChip" class="chip" style="display:none">—</span>
+            <span id="taskStage" style="font-size:11px;color:var(--text3)"></span>
+          </div>
+          <div class="log-box" id="anaLog">等待操作...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ SSE ══ -->
+    <div class="page" id="page-stream">
+      <div class="panel">
+        <div class="panel-head"><span>📡</span><h2>SSE 实时进度</h2><span class="sub">GET /stream/{task_id}</span></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="field">
+              <label>Task ID</label>
+              <input id="sseTaskId" placeholder="从任务页同步或手动填入" />
+            </div>
+            <button class="btn btn-success" id="btnStartSSE" onclick="startSSE()">▶ 连接</button>
+            <button class="btn btn-danger" id="btnStopSSE" onclick="stopSSE()" disabled>■ 断开</button>
+            <button class="btn btn-ghost btn-sm" onclick="syncTaskId()">← 同步</button>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+              <span style="font-size:11px;color:var(--text2)">流水线进度</span>
+              <span id="ssePctLabel" style="font-size:11px;color:var(--text2)">等待...</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="sseBar"></div></div>
+          </div>
+          <div class="sse-log" id="sseLog">
+            <div class="sse-line"><span class="sse-ts">--:--:--</span><span class="sse-evt">system</span><span class="sse-dat dim">等待连接...</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ RESULT ══ -->
+    <div class="page" id="page-result">
+      <div class="panel">
+        <div class="panel-head"><span>📋</span><h2>分析报告</h2><span class="sub">GET /result/{task_id}</span></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="field">
+              <label>Task ID</label>
+              <input id="resTaskId" placeholder="填入 task_id" />
+            </div>
+            <button class="btn btn-primary" onclick="loadResult()">📋 获取报告</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadSlices()">🖼 切片列表</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadStages()">🔍 阶段详情</button>
+            <button class="btn btn-ghost btn-sm" onclick="syncResTaskId()">← 同步</button>
+          </div>
+
+          <div id="resTabs" style="display:none">
+            <div class="tabs">
+              <div class="tab active"  onclick="switchTab(0)">报告内容</div>
+              <div class="tab"         onclick="switchTab(1)">切片图像</div>
+              <div class="tab"         onclick="switchTab(2)">阶段详情</div>
+              <div class="tab"         onclick="switchTab(3)">Token 统计</div>
+            </div>
+            <div class="tab-content active" id="tc0">
+              <div class="result-sec" style="margin-bottom:12px">
+                <h4>🩺 总体印象</h4>
+                <div id="rImpression" class="finding-item" style="border-color:var(--accent2)">—</div>
+              </div>
+              <div class="result-sec" style="margin-bottom:12px">
+                <h4>🔬 影像发现</h4>
+                <div id="rFindings">—</div>
+              </div>
+              <div class="result-sec" style="margin-bottom:12px">
+                <h4>🫁 结节评估</h4>
+                <div id="rNodules">—</div>
+              </div>
+              <div class="result-sec" style="margin-bottom:12px">
+                <h4>📌 诊疗建议</h4>
+                <div id="rRecs">—</div>
+              </div>
+              <div class="result-sec">
+                <h4>⚠️ 免责声明</h4>
+                <div id="rDisclaimer" style="font-size:11px;color:var(--text3);background:var(--bg3);padding:9px;border-radius:5px">—</div>
+              </div>
+            </div>
+            <div class="tab-content" id="tc1">
+              <div class="slice-gallery" id="sliceGallery">
+                <div style="color:var(--text3);font-size:12px">点击「切片列表」加载图像</div>
+              </div>
+            </div>
+            <div class="tab-content" id="tc2">
+              <div id="stagesTable" style="font-size:12px;color:var(--text2)">点击「阶段详情」加载</div>
+            </div>
+            <div class="tab-content" id="tc3">
+              <div class="token-grid" style="margin-bottom:14px">
+                <div class="token-card"><div class="val" id="t1">—</div><div class="key">Step1 tokens</div></div>
+                <div class="token-card"><div class="val" id="t2">—</div><div class="key">Step2 tokens</div></div>
+                <div class="token-card"><div class="val" id="t3">—</div><div class="key">Step3 tokens</div></div>
+                <div class="token-card"><div class="val" id="tt">—</div><div class="key">合计</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-size:11px;color:var(--text2)">置信度</span>
+                <span id="rConf" style="font-size:22px;font-weight:700;color:var(--accent)">—</span>
+                <span class="tag" id="rModel" style="margin-left:8px">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="log-box" id="resLog" style="max-height:160px">等待操作...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ QUOTA ══ -->
+    <div class="page" id="page-quota">
+      <div class="panel">
+        <div class="panel-head"><span>⚡</span><h2>Token 配额状态</h2><span class="sub">每日限额保护</span></div>
+        <div class="panel-body">
+          <p style="font-size:12px;color:var(--text3)">配额信息需 Token，请先登录。</p>
+          <div class="token-grid">
+            <div class="token-card"><div class="val" id="q-rem">—</div><div class="key">剩余 tokens</div></div>
+            <div class="token-card"><div class="val" id="q-lim">—</div><div class="key">每日上限</div></div>
+            <div class="token-card" style="grid-column:span 2"><div class="val" id="q-rst" style="font-size:12px">—</div><div class="key">重置时间</div></div>
+          </div>
+          <button class="btn btn-primary" onclick="checkQuota()">⚡ 查询配额</button>
+          <div class="log-box" id="quotaLog">等待操作...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ RAW ══ -->
+    <div class="page" id="page-raw">
+      <div class="panel">
+        <div class="panel-head"><span>🛠</span><h2>原始 HTTP 请求</h2><span class="sub">自由调试</span></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="field" style="max-width:90px">
+              <label>方法</label>
+              <select id="rawMethod"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select>
+            </div>
+            <div class="field">
+              <label>路径</label>
+              <input id="rawPath" value="/health" />
+            </div>
+            <button class="btn btn-primary" onclick="sendRaw()">▶ 发送</button>
+          </div>
+          <div class="field">
+            <label>请求体 (JSON)</label>
+            <textarea id="rawBody" placeholder='{"key":"value"}'></textarea>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+            <span style="font-size:11px;color:var(--text2)">响应</span>
+            <span id="rawStatus" style="font-size:11px"></span>
+          </div>
+          <div class="log-box" id="rawLog">等待发送...</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════ STATE ═══════════════
+const S = {
+  file: null,
+  uploadId: null,
+  fileId: null,
+  taskId: null,
+  _sseAbort: null,
+};
+
+const base   = () => document.getElementById('baseUrl').value.replace(/\/$/,'');
+const token  = () => document.getElementById('jwtToken').value.trim();
+const $      = id => document.getElementById(id);
+
+// ═══════════════ UTILS ═══════════════
+async function req(method, path, body, rawBuf) {
+  const h = {};
+  const t = token();
+  if (t) h['Authorization'] = 'Bearer ' + t;
+  const opts = { method, headers: h };
+  if (body !== undefined && !rawBuf) {
+    h['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (rawBuf) {
+    opts.body = rawBuf;
+  }
+  const r = await fetch(base() + path, opts);
+  const d = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, data: d };
+}
+
+function fmt(d)    { return JSON.stringify(d, null, 2); }
+function escH(s)   { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtB(n)   {
+  if (n < 1024)    return n + ' B';
+  if (n < 1<<20)   return (n/1024).toFixed(1) + ' KB';
+  if (n < 1<<30)   return (n/1024/1024).toFixed(1) + ' MB';
+  return (n/1024/1024/1024).toFixed(2) + ' GB';
+}
+function ts() { return new Date().toLocaleTimeString(); }
+
+function setLog(id, label, data, ok=true) {
+  $(id).innerHTML = `<span class="dim">[${ts()}]</span> <span class="${ok?'ok':'err'}">${escH(label)}</span>\n${escH(fmt(data))}`;
+}
+function appendLog(id, msg, cls='') {
+  const el = $(id);
+  el.innerHTML += (el.innerHTML?'\n':'') + (cls ? `<span class="${cls}">[${ts()}] ${escH(msg)}</span>` : `<span class="dim">[${ts()}]</span> ${escH(msg)}`);
+  el.scrollTop = el.scrollHeight;
+}
+function setBar(barId, lblId, pct) {
+  $(barId).style.width = pct + '%';
+  $(lblId).textContent = pct + '%';
+}
+function toast(msg, icon='ℹ️') {
+  const el = $('toast');
+  el.innerHTML = `${icon} <span>${escH(msg)}</span>`;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+async function sha256hex(buf) {
+  const h = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// ═══════════════ NAV ═══════════════
+function switchPage(name, el) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  $('page-'+name).classList.add('active');
+  el.classList.add('active');
+}
+function switchTab(idx) {
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active', i===idx));
+  document.querySelectorAll('.tab-content').forEach((t,i)=>t.classList.toggle('active', i===idx));
+}
+
+// ═══════════════ HEALTH ═══════════════
+async function checkHealth() {
+  try {
+    const r = await req('GET', '/health');
+    const dot = $('statusDot'), txt = $('statusText');
+    if (r.ok) {
+      dot.className='dot online'; txt.textContent='服务在线 v'+(r.data.version||'?');
+      $('h-status').textContent='✅ online';
+      $('h-ver').textContent = r.data.version||'?';
+      const d = r.data.disk||{};
+      $('h-free').textContent = (d.free_gb||0)+' GB';
+      $('h-pct').textContent  = (d.usage_percent||0)+'%';
+      setLog('healthLog','Health OK', r.data, true);
+    } else {
+      dot.className='dot offline'; txt.textContent='服务异常';
+      setLog('healthLog','Health ERROR', r.data, false);
+    }
+  } catch(e) {
+    $('statusDot').className='dot offline'; $('statusText').textContent='连接失败';
+    appendLog('healthLog','连接失败: '+e.message,'err');
+  }
+}
+function copyBase() { navigator.clipboard.writeText(base()).then(()=>toast('已复制地址')); }
+
+// ═══════════════ AUTH ═══════════════
+async function doLogin() {
+  const code = $('wxCode').value.trim();
+  if (!code) { toast('请填写 code','⚠️'); return; }
+  try {
+    const r = await req('POST','/auth/wx_login',{code});
+    if (r.ok && r.data?.access_token) {
+      $('jwtToken').value = r.data.access_token;
+      toast('登录成功！Token 已保存','✅');
+      setLog('authLog','登录成功', r.data, true);
+    } else {
+      setLog('authLog','登录失败', r.data, false);
+    }
+  } catch(e) { appendLog('authLog','请求失败: '+e.message,'err'); }
+}
+function copyToken() {
+  const t = token(); if (!t) { toast('Token 为空','⚠️'); return; }
+  navigator.clipboard.writeText(t).then(()=>toast('Token 已复制'));
+}
+function clearToken() { $('jwtToken').value=''; toast('Token 已清除','🗑️'); }
+
+// ═══════════════ UPLOAD ═══════════════
+const CHUNK = 5*1024*1024;
+function onFileSelected(inp) {
+  const f = inp.files[0]; if (!f) return;
+  S.file = f;
+  $('upName').textContent = f.name;
+  $('upSize').textContent = fmtB(f.size);
+  $('fileInfo').style.display='block';
+  $('btnUpload').disabled=false;
+  toast('已选择: '+f.name,'📄');
+}
+function clearFile() {
+  S.file=null; $('fileInput').value='';
+  $('fileInfo').style.display='none';
+  $('btnUpload').disabled=true;
+  setBar('upBar','upPctLabel',0);
+}
+// drag-drop
+const dz=$('dropzone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('dragover');
+  const f=e.dataTransfer.files[0];
+  if(f){S.file=f;onFileSelected({files:[f]});}
+});
+
+async function startUpload() {
+  const f = S.file;
+  if (!f) { toast('请先选择文件','⚠️'); return; }
+  if (!token()) { toast('请先登录','⚠️'); return; }
+  $('btnUpload').disabled=true;
+  appendLog('upLog','计算 SHA256...','info');
+
+  const buf = await f.arrayBuffer();
+  const hash = await sha256hex(buf);
+  appendLog('upLog','SHA256: '+hash,'dim');
+
+  const totalChunks = Math.ceil(f.size/CHUNK);
+
+  // INIT
+  try {
+    const ir = await req('POST','/upload/init',{
+      filename: f.name, total_size: f.size, total_chunks: totalChunks, file_sha256: hash
+    });
+    setLog('upLog','Init', ir.data, ir.ok);
+    if (!ir.ok) { $('btnUpload').disabled=false; return; }
+    if (ir.data?.already_exists) {
+      S.fileId = ir.data.existing_file_id;
+      $('fileId').value = S.fileId;
+      toast('文件已存在，无需重复上传','♻️');
+      setBar('upBar','upPctLabel',100);
+      $('btnUpload').disabled=false;
+      return;
+    }
+    const uid = ir.data.upload_id;
+    S.uploadId = uid; $('uploadId').value = uid;
+
+    // CHUNKS
+    for (let i=0;i<totalChunks;i++) {
+      const chunk = buf.slice(i*CHUNK, (i+1)*CHUNK);
+      const r = await fetch(base()+`/upload/chunk?upload_id=${uid}&chunk_index=${i}`, {
+        method:'PUT',
+        headers:{'Authorization':'Bearer '+token()},
+        body: chunk,
+      });
+      if (!r.ok) {
+        const e=await r.json().catch(()=>({}));
+        appendLog('upLog',`分片 ${i} 失败: ${JSON.stringify(e)}`,'err');
+        $('btnUpload').disabled=false; return;
+      }
+      setBar('upBar','upPctLabel', Math.round((i+1)/totalChunks*90));
+    }
+    appendLog('upLog','所有分片完成，合并中...','info');
+
+    // COMPLETE
+    const cr = await req('POST','/upload/complete?upload_id='+uid);
+    setLog('upLog','Complete', cr.data, cr.ok);
+    if (cr.ok) {
+      S.fileId = cr.data.file_id; $('fileId').value = S.fileId;
+      setBar('upBar','upPctLabel',100);
+      toast('上传完成！File ID: '+S.fileId,'✅');
+    }
+  } catch(e) { appendLog('upLog','上传失败: '+e.message,'err'); }
+  $('btnUpload').disabled=false;
+}
+
+async function checkChunks() {
+  const uid = $('uploadId').value.trim();
+  if (!uid) { toast('请填写 Upload ID','⚠️'); return; }
+  const r = await req('GET','/upload/chunks/'+uid);
+  setLog('upLog','已上传分片', r.data, r.ok);
+}
+
+// ═══════════════ ANALYSIS ═══════════════
+function syncFileId() {
+  const fid = S.fileId||$('fileId').value;
+  if (fid) { $('anaFileId').value=fid; toast('File ID 已同步','🔄'); }
+  else toast('请先完成上传','⚠️');
+}
+
+async function createAnalysis() {
+  const fid = $('anaFileId').value.trim();
+  if (!fid) { toast('请填写 File ID','⚠️'); return; }
+  if (!token()) { toast('请先登录','⚠️'); return; }
+  try {
+    const r = await req('POST','/analysis/create',{
+      file_id: fid,
+      scan_type: $('scanType').value,
+      clinical_notes: $('clinicalNotes').value,
+      model: $('llmModel').value,
+    });
+    setLog('anaLog','创建任务', r.data, r.ok);
+    if (r.ok) {
+      S.taskId = r.data.task_id;
+      $('taskId').value = S.taskId;
+      updateChip(r.data.status,'');
+      toast('任务已创建！','🚀');
+    }
+  } catch(e) { appendLog('anaLog',e.message,'err'); }
+}
+
+async function pollStatus() {
+  const tid = $('taskId').value.trim();
+  if (!tid) { toast('请先创建任务或填写 Task ID','⚠️'); return; }
+  const r = await req('GET','/analysis/status/'+tid);
+  setLog('anaLog','任务状态', r.data, r.ok);
+  if (r.ok) { updateChip(r.data.status, r.data.stage||''); S.taskId=tid; }
+}
+
+function updateChip(status, stage) {
+  const c = $('taskStatusChip');
+  c.style.display='inline-flex';
+  c.className='chip '+(status||'pending');
+  c.textContent = status||'—';
+  $('taskStage').textContent = stage ? '→ '+stage : '';
+}
+
+// ═══════════════ SSE ═══════════════
+function syncTaskId() {
+  const tid = S.taskId||$('taskId').value;
+  if (tid) { $('sseTaskId').value=tid; toast('Task ID 已同步','🔄'); }
+  else toast('请先创建任务','⚠️');
+}
+
+function startSSE() {
+  const tid = $('sseTaskId').value.trim();
+  if (!tid)    { toast('请填写 Task ID','⚠️'); return; }
+  if (!token()) { toast('请先登录','⚠️'); return; }
+  stopSSE();
+  $('btnStartSSE').disabled=true;
+  $('btnStopSSE').disabled=false;
+  $('sseLog').innerHTML='';
+  addSSELine('system','connecting...','dim');
+  doFetchSSE(tid);
+}
+
+async function doFetchSSE(tid) {
+  const ctrl = new AbortController();
+  S._sseAbort = ctrl;
+  try {
+    const res = await fetch(base()+'/stream/'+tid, {
+      headers:{'Authorization':'Bearer '+token()},
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(()=>({}));
+      addSSELine('error', JSON.stringify(e), 'error');
+      resetSSEBtns(); return;
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value,{stream:true});
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const block of parts) parseSSEBlock(block);
+    }
+  } catch(e) {
+    if (e.name!=='AbortError') addSSELine('error', e.message, 'error');
+  }
+  resetSSEBtns();
+}
+
+function parseSSEBlock(block) {
+  const lines = block.split('\n');
+  let event='message', data='';
+  for (const l of lines) {
+    if (l.startsWith('event:')) event = l.slice(6).trim();
+    if (l.startsWith('data:'))  data  = l.slice(5).trim();
+    if (l.startsWith(':'))      { addSSELine('♡ heartbeat','','dim'); return; }
+  }
+  if (!data) return;
+  let cls = '';
+  let display = data;
+  try {
+    const obj = JSON.parse(data);
+    display = JSON.stringify(obj);
+    if (event==='progress' && obj.progress!==undefined) {
+      $('sseBar').style.width = obj.progress+'%';
+      $('ssePctLabel').textContent = (obj.stage||event)+' — '+obj.progress+'%';
+    }
+    if (event==='done') {
+      $('sseBar').style.width='100%';
+      $('ssePctLabel').textContent='✅ 完成';
+      cls='done'; toast('分析完成！','✅');
+    }
+    if (event==='error' || event==='rejected') { cls='error'; toast('任务失败','❌'); }
+  } catch(_) {}
+  addSSELine(event, display, cls);
+}
+
+function addSSELine(event, data, cls) {
+  const log = $('sseLog');
+  const d = document.createElement('div');
+  d.className='sse-line';
+  d.innerHTML = `<span class="sse-ts">${ts()}</span><span class="sse-evt">${escH(event)}</span><span class="sse-dat ${cls}">${escH(data)}</span>`;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+
+function stopSSE() {
+  if (S._sseAbort) { S._sseAbort.abort(); S._sseAbort=null; }
+  resetSSEBtns();
+}
+function resetSSEBtns() {
+  $('btnStartSSE').disabled=false;
+  $('btnStopSSE').disabled=true;
+}
+
+// ═══════════════ RESULT ═══════════════
+function syncResTaskId() {
+  const tid = S.taskId||$('taskId').value;
+  if (tid) { $('resTaskId').value=tid; toast('Task ID 已同步','🔄'); }
+  else toast('请先创建任务','⚠️');
+}
+
+async function loadResult() {
+  const tid = $('resTaskId').value.trim();
+  if (!tid) { toast('请填写 Task ID','⚠️'); return; }
+  const r = await req('GET','/result/'+tid);
+  setLog('resLog','获取报告', r.data, r.ok);
+  if (!r.ok) return;
+  const d = r.data;
+  $('resTabs').style.display='block';
+
+  // 报告内容
+  $('rImpression').textContent = d.impression || '无';
+  const findings = Array.isArray(d.findings) ? d.findings : [];
+  $('rFindings').innerHTML = findings.length
+    ? findings.map(f=>`<div class="finding-item">${escH(f)}</div>`).join('')
+    : '<div class="finding-item" style="color:var(--text3)">无</div>';
+
+  const nodules = Array.isArray(d.nodule_assessment) ? d.nodule_assessment : [];
+  $('rNodules').innerHTML = nodules.length
+    ? nodules.map(n=>`
+        <div class="nodule-card">
+          <div class="nodule-field"><label>位置</label><span>${escH(n.location||'—')}</span></div>
+          <div class="nodule-field"><label>大小</label><span>${escH(n.size_mm||'—')}</span></div>
+          <div class="nodule-field"><label>LungRADS</label><span>${escH(n.lung_rads_grade||'—')}</span></div>
+          <div class="nodule-field"><label>形态</label><span>${escH(n.morphology||'—')}</span></div>
+          <div class="nodule-field"><label>密度</label><span>${escH(n.density_type||'—')}</span></div>
+          <div class="nodule-field"><label>恶性风险</label><span>${escH(n.malignancy_risk||'—')}</span></div>
+        </div>`).join('')
+    : '<div style="color:var(--text3);font-size:12px">未检出结节候选</div>';
+
+  const recs = Array.isArray(d.recommendations) ? d.recommendations : [];
+  $('rRecs').innerHTML = recs.length
+    ? recs.map(r=>`<div class="finding-item" style="border-color:var(--green)">${escH(r)}</div>`).join('')
+    : '<div class="finding-item" style="color:var(--text3)">无</div>';
+
+  $('rDisclaimer').textContent = d.disclaimer || '—';
+
+  // Token 统计
+  const tk = d.tokens||{};
+  $('t1').textContent = (tk.step1||0).toLocaleString();
+  $('t2').textContent = (tk.step2||0).toLocaleString();
+  $('t3').textContent = (tk.step3||0).toLocaleString();
+  $('tt').textContent = (tk.total||0).toLocaleString();
+  $('rConf').textContent = typeof d.confidence==='number' ? d.confidence.toFixed(2) : '—';
+  $('rModel').textContent = d.llm_model||'—';
+}
+
+async function loadSlices() {
+  const tid = $('resTaskId').value.trim();
+  if (!tid) { toast('请填写 Task ID','⚠️'); return; }
+  const r = await req('GET','/result/'+tid+'/slices');
+  setLog('resLog','切片列表', r.data, r.ok);
+  if (!r.ok) return;
+  $('resTabs').style.display='block';
+  switchTab(1);
+
+  const slices = r.data.slices||[];
+  if (!slices.length) {
+    $('sliceGallery').innerHTML='<div style="color:var(--text3);font-size:12px">暂无切片数据</div>';
+    return;
+  }
+  $('sliceGallery').innerHTML = slices.map(s=>`
+    <div class="slice-card">
+      <img src="${base()+'/static/'+encodeURIComponent(s.lung_window_path||'')}" alt="切片${s.rank}"
+           onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22150%22 height=%22150%22><rect fill=%22%23252836%22 width=%22150%22 height=%22150%22/><text fill=%22%2364748b%22 font-size=%2212%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22>无图像</text></svg>'"
+      />
+      <div class="sc-info">
+        <div class="sc-rank">#${s.rank??'—'}</div>
+        <div>切片 ${s.slice_index??'—'} · 分 ${(s.score??0).toFixed(2)}</div>
+        <div style="color:var(--text3);margin-top:2px;font-size:10px">${escH((s.selection_reason||'').slice(0,20))}</div>
+      </div>
+    </div>`).join('');
+}
+
+async function loadStages() {
+  const tid = $('resTaskId').value.trim();
+  if (!tid) { toast('请填写 Task ID','⚠️'); return; }
+  const r = await req('GET','/result/'+tid+'/stages');
+  setLog('resLog','阶段详情', r.data, r.ok);
+  if (!r.ok) return;
+  $('resTabs').style.display='block';
+  switchTab(2);
+
+  const stages = r.data.stages||[];
+  const statusColor = {pass:'var(--green)',warn:'var(--yellow)',error:'var(--red)'};
+  $('stagesTable').innerHTML = stages.length
+    ? stages.map(s=>`
+        <div class="stage-row">
+          <span class="stage-name">${escH(s.stage)}</span>
+          <span class="stage-status" style="color:${statusColor[s.status]||'var(--text2)'}">
+            ${s.status==='pass'?'✅':s.status==='warn'?'⚠️':'❌'} ${s.status}
+          </span>
+          <span style="font-size:11px;color:var(--text3);flex:1">${escH(s.error||'')}</span>
+          <span class="stage-ms">${s.elapsed_ms!=null?s.elapsed_ms+'ms':'—'}</span>
+        </div>`).join('')
+    : '<div style="color:var(--text3)">暂无阶段数据</div>';
+}
+
+// ═══════════════ QUOTA ═══════════════
+async function checkQuota() {
+  // 配额接口需要用 QuotaService.get_status，演示直接读 Redis，这里走 /health 检查服务
+  // 实际项目可在 main.py 添加 GET /quota 接口
+  try {
+    const r = await req('GET','/health');
+    setLog('quotaLog','服务健康（配额信息需专用接口）', r.data, r.ok);
+    toast('配额查询需后端实现 /quota 接口','ℹ️');
+    $('q-rem').textContent='—';
+    $('q-lim').textContent='200,000';
+    $('q-rst').textContent='明天 00:00 CST';
+  } catch(e) { appendLog('quotaLog',e.message,'err'); }
+}
+
+// ═══════════════ RAW ═══════════════
+async function sendRaw() {
+  const method = $('rawMethod').value;
+  const path   = $('rawPath').value;
+  const bodyTxt= $('rawBody').value.trim();
+  $('rawStatus').textContent='...';
+  try {
+    let body = undefined;
+    if (bodyTxt) body = JSON.parse(bodyTxt);
+    const r = await req(method, path, body);
+    const ok = r.ok;
+    $('rawStatus').innerHTML = `<span style="color:${ok?'var(--green)':'var(--red)'}">${r.status}</span>`;
+    $('rawLog').textContent = fmt(r.data);
+  } catch(e) {
+    $('rawStatus').innerHTML = `<span style="color:var(--red)">ERROR</span>`;
+    $('rawLog').textContent = e.message;
+  }
+}
+
+// ═══════════════ INIT ═══════════════
+window.addEventListener('DOMContentLoaded', () => {
+  // 自动检查服务
+  checkHealth();
+  // 实时 baseUrl 变化同步
+  $('baseUrl').addEventListener('change', checkHealth);
+});
+</script>
+</body>
+</html>
