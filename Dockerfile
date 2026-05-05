@@ -1,9 +1,14 @@
 # ── Stage 1: 构建依赖层（避免每次重建都重装包）──────────────────────
 FROM python:3.11-slim AS builder
 
+# 使用国内镜像源加速
+RUN echo 'deb https://mirrors.aliyun.com/debian/ trixie main non-free-firmware' > /etc/apt/sources.list \
+    && echo 'deb https://mirrors.aliyun.com/debian/ trixie-updates main non-free-firmware' >> /etc/apt/sources.list \
+    && echo 'deb https://mirrors.aliyun.com/debian-security/ trixie-security main non-free-firmware' >> /etc/apt/sources.list
+
 # 安装编译依赖（SimpleITK / OpenCV 等需要）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ libgl1-mesa-glx libglib2.0-0 \
+    gcc g++ libgl1 libglib2.0-0 \
     libgomp1 libsm6 libxrender1 libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -11,7 +16,7 @@ WORKDIR /build
 
 # 先只复制 requirements.txt，利用 Docker 层缓存
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 
 
 # ── Stage 2: 最终运行镜像 ─────────────────────────────────────────
@@ -21,9 +26,14 @@ LABEL maintainer="monica-server" \
       description="Monica Medical AI Server" \
       version="1.0.0"
 
+# 使用国内镜像源加速
+RUN echo 'deb https://mirrors.aliyun.com/debian/ trixie main non-free-firmware' > /etc/apt/sources.list \
+    && echo 'deb https://mirrors.aliyun.com/debian/ trixie-updates main non-free-firmware' >> /etc/apt/sources.list \
+    && echo 'deb https://mirrors.aliyun.com/debian-security/ trixie-security main non-free-firmware' >> /etc/apt/sources.list
+
 # 运行时依赖（OpenCV / SimpleITK 运行库）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx libglib2.0-0 \
+    libgl1 libglib2.0-0 \
     libgomp1 libsm6 libxrender1 libxext6 \
     supervisor \
     && rm -rf /var/lib/apt/lists/*
@@ -42,15 +52,17 @@ COPY --from=builder /install /usr/local
 WORKDIR /opt/monica-server
 COPY --chown=monica:monica . .
 
-# 创建运行时目录
+# 创建运行时目录（包含数据库目录）
 RUN mkdir -p \
     /opt/monica-server/storage/uploads \
     /opt/monica-server/storage/processed \
     /opt/monica-server/storage/exports \
     /opt/monica-server/storage/chunks \
+    /opt/monica-server/db \
     /var/log/monica \
     && chown -R monica:monica \
         /opt/monica-server/storage \
+        /opt/monica-server/db \
         /var/log/monica
 
 # 不暴露 80/443（由 docker-compose 中 nginx 容器处理）

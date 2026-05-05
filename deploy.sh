@@ -26,7 +26,7 @@ error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 # ── 前置检查 ──────────────────────────────────────────────────
 check_deps() {
     command -v docker >/dev/null 2>&1   || error "Docker 未安装，请先安装 Docker"
-    command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 \
+    command -v docker >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1 \
         || error "Docker Compose v2 未安装，请升级 Docker Desktop 或安装 docker-compose-plugin"
 }
 
@@ -50,28 +50,30 @@ check_env() {
 # ── 子命令：首次部署 / 更新部署 ──────────────────────────────
 cmd_deploy() {
     local mode="${1:-first}"
-    info "🚀 开始${mode == 'update' && echo '更新' || echo ''}部署 Monica Server..."
+    local update_text=""
+    [[ "$mode" == "update" ]] && update_text="更新"
+    info "🚀 开始${update_text}部署 Monica Server..."
 
     check_deps
     check_env
 
     info "拉取基础镜像..."
-    docker compose pull redis nginx 2>/dev/null || true
+    docker-compose pull redis nginx 2>/dev/null || true
 
     info "构建应用镜像..."
-    docker compose build --no-cache app
+    docker-compose build --no-cache app
 
     if [ "$mode" = "update" ]; then
         info "滚动重启服务..."
-        docker compose up -d --no-deps app
+        docker-compose up -d --no-deps app
     else
         info "启动所有服务..."
-        docker compose up -d
+        docker-compose up -d
     fi
 
     info "等待服务就绪（最多 60 秒）..."
     local i=0
-    until docker compose exec -T app python -c \
+    until docker-compose exec -T app python -c \
         "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" \
         >/dev/null 2>&1; do
         i=$((i+1))
@@ -95,20 +97,20 @@ cmd_update() {
 
 cmd_logs() {
     check_deps
-    docker compose logs -f --tail=100 "${@:-app}"
+    docker-compose logs -f --tail=100 "${@:-app}"
 }
 
 cmd_stop() {
     check_deps
     info "停止所有服务..."
-    docker compose down
+    docker-compose down
     success "服务已停止"
 }
 
 cmd_restart() {
     check_deps
     info "重启服务..."
-    docker compose restart "${@:-}"
+    docker-compose restart "${@:-}"
     success "服务已重启"
 }
 
@@ -116,13 +118,13 @@ cmd_status() {
     check_deps
     echo ""
     echo "═══════════════════ 容器状态 ═══════════════════"
-    docker compose ps
+    docker-compose ps
     echo ""
     echo "═══════════════════ 资源使用 ═══════════════════"
-    docker compose stats --no-stream 2>/dev/null || true
+    docker-compose stats --no-stream 2>/dev/null || true
     echo ""
     echo "════════════════════ 健康检查 ══════════════════"
-    if docker compose exec -T app python -c \
+    if docker-compose exec -T app python -c \
         "import urllib.request, json; r=urllib.request.urlopen('http://localhost:8000/health'); print(json.loads(r.read()))" \
         2>/dev/null; then
         success "API 服务正常"
