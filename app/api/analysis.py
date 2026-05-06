@@ -7,6 +7,7 @@ GET  /analysis/status/{task_id} → 任务状态轮询
 import hashlib
 import logging
 import uuid
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
@@ -20,6 +21,25 @@ from app.services.file_service import DiskGuard
 router     = APIRouter(prefix="/analysis", tags=["Analysis"])
 logger     = logging.getLogger(__name__)
 disk_guard = DiskGuard()
+
+# ARQ Redis 连接池单例（应用生命周期内复用，避免每次请求新建连接）
+_arq_redis_pool = None
+
+
+async def _get_arq_pool():
+    """获取或创建 ARQ Redis 连接池（惰性初始化，进程内单例）"""
+    global _arq_redis_pool
+    if _arq_redis_pool is None:
+        from arq.connections import create_pool, RedisSettings
+        parsed = urlparse(settings.REDIS_URL)
+        _arq_redis_pool = await create_pool(
+            RedisSettings(
+                host=parsed.hostname or "localhost",
+                port=parsed.port or 6379,
+                database=int(parsed.path.strip("/") or 0),
+            )
+        )
+    return _arq_redis_pool
 
 
 class CreateAnalysisRequest(BaseModel):
@@ -110,19 +130,9 @@ async def create_analysis(
         db.add(task)
         db.commit()
 
-    # 入队 ARQ 任务
+    # 入队 ARQ 任务（使用单例连接池，避免每次新建连接）
     try:
-        import redis.asyncio as aioredis
-        from arq.connections import create_pool, RedisSettings
-        from urllib.parse import urlparse
-        parsed = urlparse(settings.REDIS_URL)
-        arq_redis = await create_pool(
-            RedisSettings(
-                host=parsed.hostname or "localhost",
-                port=parsed.port or 6379,
-                database=int(parsed.path.strip("/") or 0),
-            )
-        )
+        arq_redis = await _get_arq_pool()
         await arq_redis.enqueue_job(
             "run_analysis_pipeline",
             task_id=task_id,
@@ -132,7 +142,6 @@ async def create_analysis(
             clinical_notes=body.clinical_notes,
             model=model,
         )
-        await arq_redis.close()
     except Exception as e:
         logger.error(f"[Analysis] 任务入队失败: {e}")
         with SessionLocal() as db:

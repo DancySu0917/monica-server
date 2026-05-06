@@ -155,6 +155,65 @@ async def get_received_chunks(
     return {"upload_id": upload_id, "received_chunks": received}
 
 
+@router.delete("/file/{file_id}", summary="删除文件记录（清除秒传缓存）")
+async def delete_file_record(
+    file_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """
+    删除指定 file_id 的 FileRecord 及磁盘文件，使该文件下次上传时重新走完整流程。
+    同时将关联的已完成任务幂等键置为过期，允许重新提交分析。
+    """
+    import re, os
+    from pathlib import Path
+    from app.models.file_record import FileRecord
+    from app.models.task import Task
+    from app.database import SessionLocal as Sess
+
+    if not re.fullmatch(r"[0-9a-fA-F]{8,64}", file_id):
+        raise HTTPException(status_code=422, detail="file_id 格式非法")
+    file_id = file_id.lower()
+
+    with Sess() as db:
+        rec = db.query(FileRecord).filter_by(file_hash=file_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail=f"file_id={file_id} 不存在")
+
+        storage_path = rec.storage_path
+
+        # 1. 删除磁盘文件（若存在）
+        try:
+            if storage_path and Path(storage_path).exists():
+                Path(storage_path).unlink()
+                logger.info(f"[Upload] 已删除文件 {storage_path}")
+        except Exception as e:
+            logger.warning(f"[Upload] 删除文件失败 {storage_path}: {e}")
+
+        # 2. 删除 FileRecord
+        db.delete(rec)
+
+        # 3. 将该 file_id 关联的所有已完成/失败任务幂等键设为过期
+        #    （pending/processing 任务不干预，避免影响进行中的分析）
+        tasks = db.query(Task).filter(
+            Task.idempotency_key.like(f"%{file_id[:16]}%")
+        ).all()
+        invalidated = 0
+        for t in tasks:
+            if t.status not in ("pending", "processing"):
+                t.idempotency_key = f"__cleared__{t.task_id}"
+                invalidated += 1
+
+        db.commit()
+
+    logger.info(f"[Upload] file_id={file_id[:12]}… 已清除，关联任务幂等键重置 {invalidated} 条")
+    return {
+        "deleted":         True,
+        "file_id":         file_id,
+        "tasks_reset":     invalidated,
+        "message":         "文件记录已删除，下次上传将重新执行完整流程",
+    }
+
+
 @router.post("/complete", summary="合并所有分片，校验 SHA256")
 async def complete_upload(
     upload_id: str,

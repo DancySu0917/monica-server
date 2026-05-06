@@ -44,7 +44,7 @@ class QuotaService:
         return f"quota:{user_id}:{date.today().isoformat()}"
 
     async def check_and_consume(self, user_id: str, estimated_tokens: int) -> None:
-        key = f"quota:{user_id}:{date.today()}"
+        key = self._key(user_id)   # 统一使用 _key() 方法，避免格式不一致
         # 原子加；超限立即回滚
         current = await self.redis.incrby(key, estimated_tokens)
         await self.redis.expire(key, 86400)   # 每次刷新 TTL

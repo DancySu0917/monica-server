@@ -79,7 +79,7 @@ async def _event_generator(
             yield _sse_event("error", {"message": "任务不存在"})
             return
 
-        # 状态变化时推送更新
+        # 状态变化时推送更新（首次连接必然触发，因 last_* 初始为空字符串）
         changed = (task.stage != last_stage or task.status != last_status)
         if changed:
             last_stage  = task.stage  or ""
@@ -93,7 +93,7 @@ async def _event_generator(
             }
             yield _sse_event("progress", event_data)
 
-        # 终态
+        # 终态：推送最终结果后立即关闭流
         if task.status in ("done", "error", "rejected"):
             if task.status == "done":
                 result = _load_result(task_id)
@@ -111,7 +111,8 @@ async def _event_generator(
                 })
             return
 
-        # heartbeat（防代理超时）
+        # heartbeat（防代理超时），然后再等待轮询间隔
+        # 注意：心跳在状态推送之后发送，保证首次连接立刻收到当前状态
         yield _sse_heartbeat()
         await asyncio.sleep(HEARTBEAT_INTERVAL)
         waited += HEARTBEAT_INTERVAL

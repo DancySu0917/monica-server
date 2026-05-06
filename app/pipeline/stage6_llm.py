@@ -35,15 +35,25 @@ async def run_stage6(
     start = time.time()
     model = model or settings.DEFAULT_MODEL
 
+    logger.info(f"[Stage6] ===== 开始 CoT 推理 task_id={task_id} model={model} =====")
+    logger.info(f"[Stage6] 输入切片数={len(payload.selected_slices)}  结节候选数={len(payload.nodule_description.nodules)}")
+
     # ── Step 1: 并行感知每张切片 ────────────────────────────────
     step1_results, step1_tokens = await _step1_perceive(
         payload.selected_slices, model
     )
+    logger.info(f"[Stage6-Step1] 完成  感知切片数={len(step1_results)}  tokens={step1_tokens}")
+    for i, p in enumerate(step1_results):
+        logger.info(f"[Stage6-Step1] slice[{i}] rank={p.slice_rank}  "
+                    f"desc={p.visual_description[:120] if p.visual_description else 'EMPTY'}")
 
     # ── Step 2: 跨切片结节整合 ──────────────────────────────────
     step2_results, step2_tokens = await _step2_integrate(
         step1_results, payload.nodule_description.model_dump(), model
     )
+    logger.info(f"[Stage6-Step2] 完成  整合结节数={len(step2_results)}  tokens={step2_tokens}")
+    for i, n in enumerate(step2_results):
+        logger.info(f"[Stage6-Step2] nodule[{i}]: {json.dumps(n.model_dump(), ensure_ascii=False)}")
 
     # ── Step 3: 生成最终报告 ────────────────────────────────────
     report, step3_tokens = await _step3_generate_report(
@@ -101,18 +111,18 @@ async def _step1_perceive(
                     "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "low"},
                 })
 
-        content_blocks.append({
+        text_block = {
             "type": "text",
             "text": (
                 f"这是切片 #{rank}（肺窗）。"
                 f"请分析此切片，按以下 JSON 格式输出，不要添加任何 markdown 包裹：\n{STEP1_SCHEMA}"
             ),
-        })
+        }
+        content_blocks.append(text_block)
 
         messages = [
             {"role": "system", "content": STEP1_SYSTEM},
-            {"role": "user",   "content": content_blocks if content_blocks else
-             [{"type": "text", "text": content_blocks[-1]["text"]}]},
+            {"role": "user",   "content": content_blocks},
         ]
 
         def fallback_perception():
@@ -124,13 +134,14 @@ async def _step1_perceive(
             )
 
         try:
+            logger.debug(f"[Stage6-Step1] 切片 #{rank} 发送请求，有图片={bool(content_blocks[:-1])}")
             raw, used_model, tokens = await llm_svc.complete(
                 messages=messages,
                 model=model,
                 response_format="json_object",
-                max_tokens=500,
                 temperature=0.1,
             )
+            logger.info(f"[Stage6-Step1] 切片 #{rank} LLM原始返回({used_model}): {raw[:300]}")
             perception = parse_llm_response(raw, SlicePerception, fallback_perception)
             perception.slice_rank = rank   # 确保 rank 与切片对应
             return perception, tokens
@@ -160,7 +171,7 @@ async def _step2_integrate(
     SYSTEM = (
         "你是一名资深影像科医生，擅长多切片 CT 图像综合分析。"
         "请基于多张切片的感知结果，整合为跨切片的结节整合描述。"
-        "仅输出 JSON 数组，无 markdown 包裹。"
+        "仅输出 JSON 对象，包含 nodules 数组字段，无 markdown 包裹。"
     )
     perception_text = json.dumps(
         [p.model_dump() for p in perceptions],
@@ -170,11 +181,13 @@ async def _step2_integrate(
     user_msg = (
         f"各切片感知结果：\n{perception_text}\n\n"
         f"结节候选信息：{json.dumps(nodule_desc, ensure_ascii=False)}\n\n"
-        "请输出 JSON 数组，每个元素为一个整合的结节描述：\n"
-        '[{"integrated_nodule_id":"N1","best_slice_rank":1,"cross_slice_consistency":"高",'
-        '"estimated_3d_size":"约8mm","location_description":"右上肺"}]'
+        "请输出 JSON 对象，其中 nodules 字段为整合结节数组，每个元素格式如下：\n"
+        '{"nodules": [{"integrated_nodule_id":"N1","best_slice_rank":1,'
+        '"cross_slice_consistency":"高","estimated_3d_size":"约8mm","location_description":"右上肺"}]}'
     )
 
+    logger.info(f"[Stage6-Step2] 发送请求  感知数={len(perceptions)}  prompt长度={len(user_msg)}")
+    logger.debug(f"[Stage6-Step2] user_msg前500字: {user_msg[:500]}")
     try:
         raw, _, tokens = await llm_svc.complete(
             messages=[
@@ -182,19 +195,33 @@ async def _step2_integrate(
                 {"role": "user",   "content": user_msg},
             ],
             model=model,
-            max_tokens=800,
+            response_format="json_object",
             temperature=0.1,
         )
-        # 解析 JSON 数组
-        data = json.loads(raw) if raw.strip().startswith("[") else []
-        if not isinstance(data, list):
+        logger.info(f"[Stage6-Step2] LLM原始返回: {raw[:500]}")
+        # 容错解析：从 {"nodules": [...]} 或直接数组中提取结节列表
+        from app.utils.llm_parser import extract_json_from_llm
+        obj = extract_json_from_llm(raw)
+        # 优先取 nodules 字段，否则取第一个 list 值
+        if isinstance(obj, dict):
+            data = obj.get("nodules") or next(
+                (v for v in obj.values() if isinstance(v, list)),
+                []
+            )
+        elif isinstance(obj, list):
+            data = obj
+        else:
             data = []
+        if not isinstance(data, list):
+            data = [data] if isinstance(data, dict) else []
         integrations = []
         for item in data:
             try:
                 integrations.append(NoduleIntegration(**item))
             except Exception:
                 pass
+        if not integrations:
+            logger.warning(f"[Stage6-Step2] JSON 解析后列表为空，原始内容: {raw[:300]}")
         return integrations, tokens
     except Exception as e:
         logger.warning(f"[Stage6-Step2] 整合失败: {e}")
@@ -248,6 +275,8 @@ async def _step3_generate_report(
         f"请按以下 JSON 格式输出最终报告（必须包含 disclaimer 字段）：\n{REPORT_SCHEMA}"
     )
 
+    logger.info(f"[Stage6-Step3] 发送请求  step1数={len(step1)}  step2数={len(step2)}  prompt长度={len(user_msg)}")
+    logger.info(f"[Stage6-Step3] context_text: {context_text[:600]}")
     try:
         raw, used_model, tokens = await llm_svc.complete(
             messages=[
@@ -256,9 +285,9 @@ async def _step3_generate_report(
             ],
             model=model,
             response_format="json_object",
-            max_tokens=2000,
             temperature=0.2,
         )
+        logger.info(f"[Stage6-Step3] LLM原始返回({used_model}) tokens={tokens}: {raw[:800]}")
     except Exception as e:
         logger.error(f"[Stage6-Step3] 报告生成失败（所有模型均失败）: {e}")
         raw = "{}"

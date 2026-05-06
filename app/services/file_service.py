@@ -135,9 +135,9 @@ class FileService:
                 existing = db.query(FileRecord).filter_by(file_hash=file_sha256).first()
                 if existing:
                     return {
-                        "upload_id": None,
+                        "upload_id":    None,
                         "already_exists": True,
-                        "existing_file_id": file_sha256,
+                        "file_id":      file_sha256,   # 统一字段名，与 complete 响应一致
                     }
 
         upload_id = f"up_{os.urandom(8).hex()}"

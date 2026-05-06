@@ -8,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
-    APP_ENV: str = "production"
     SECRET_KEY: str = "change-me-in-production"
 
     # 微信小程序
@@ -21,16 +20,12 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # LLM 默认模型（生产环境 Evolink 降级链起点）
+    # LLM 默认模型（Evolink 降级链起点）
     DEFAULT_MODEL: str = "gemini-2.5-flash"
 
-    # Evolink 代理（Gemini 协议 + Bearer 鉴权，生产环境使用）
+    # Evolink 代理（Gemini 协议 + Bearer 鉴权）
     EVOLINK_API_KEY: str = ""
     EVOLINK_BASE_URL: str = "https://direct.evolink.ai/v1beta/models"
-
-    # Ollama 本地部署（开发环境使用，兼容 OpenAI 接口格式）
-    OLLAMA_BASE_URL: str = "http://localhost:11434/v1/chat/completions"
-    OLLAMA_DEFAULT_MODEL: str = "amsaravi/medgemma-4b-it:q6"
 
     # 存储（支持相对路径和绝对路径，最终统一转为绝对路径）
     STORAGE_ROOT: str = "./storage"
@@ -47,7 +42,7 @@ class Settings(BaseSettings):
     TOP_K_SLICES: int = 10
     TOTALSEG_FAST: bool = True
 
-    # CORS（逗号分隔，留空则开发环境允许所有，生产环境拒绝所有）
+    # CORS（逗号分隔，留空则拒绝所有跨域请求）
     ALLOWED_ORIGINS: str = ""
 
     model_config = {"env_file": ".env", "extra": "ignore"}
@@ -81,14 +76,10 @@ class Settings(BaseSettings):
         """解析 ALLOWED_ORIGINS 为列表"""
         if self.ALLOWED_ORIGINS:
             return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
-        if self.APP_ENV == "development":
-            return ["*"]
         return []
 
     def validate_production(self) -> None:
-        """生产环境启动时检查必要配置，缺失则告警"""
-        if self.APP_ENV != "production":
-            return
+        """启动时检查必要配置，缺失则告警"""
         warnings = []
         if self.SECRET_KEY in ("change-me-in-production", "your-secret-key-here-min-32-chars-please-change-this"):
             warnings.append("SECRET_KEY 仍为默认值，请立即修改！")
@@ -102,5 +93,5 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# 生产环境自动校验
+# 启动时自动校验配置
 settings.validate_production()

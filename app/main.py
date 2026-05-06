@@ -7,6 +7,7 @@ FastAPI 应用入口
 - SlowAPI 限流（基于 IP）
 """
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
@@ -65,10 +66,9 @@ async def lifespan(app: FastAPI):
 
     yield   # 应用运行中
 
-    # 关闭：释放线程池
+    # 关闭：释放线程池（shutdown_pool 是同步函数，直接调用即可）
     from app.utils.thread_pool import shutdown_pool
-    import asyncio
-    await asyncio.get_event_loop().run_in_executor(None, shutdown_pool)
+    shutdown_pool()
     logger.info("👋 Monica Server 已关闭")
 
 
@@ -79,7 +79,7 @@ app = FastAPI(
     description="医疗影像 AI 分析平台 API",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs" if settings.APP_ENV != "production" else None,
+    docs_url=None,
     redoc_url=None,
 )
 
@@ -87,7 +87,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS（通过 ALLOWED_ORIGINS 环境变量配置，开发环境默认允许所有）
+# CORS（通过 ALLOWED_ORIGINS 环境变量配置）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -110,12 +110,6 @@ app.include_router(upload_router)
 app.include_router(analysis_router)
 app.include_router(stream_router)
 app.include_router(result_router)
-
-# ── 静态文件（测试 UI）────────────────────────────────────────────
-import os
-_static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
-if os.path.isdir(_static_dir):
-    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
 # ── 全局异常处理 ──────────────────────────────────────────────────
@@ -149,10 +143,16 @@ async def root():
     return {"service": "Monica Medical AI Server", "status": "running"}
 
 
-@app.get("/test", include_in_schema=False, summary="功能测试页面")
+# ── 测试台（内部调试用，生产部署时可通过 Nginx 限制访问 IP）────────
+
+_static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+
+@app.get("/test", include_in_schema=False, summary="功能测试台")
 async def test_ui():
-    """返回内置 Web 测试台页面"""
-    import os
+    """内置 Web 测试台，用于验证各接口功能"""
     html_path = os.path.join(os.path.dirname(__file__), "..", "static", "test.html")
     if not os.path.exists(html_path):
         return JSONResponse(status_code=404, content={"detail": "测试页面不存在"})

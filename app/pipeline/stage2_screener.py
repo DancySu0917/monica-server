@@ -12,6 +12,7 @@ from typing import List
 
 import pydicom
 
+from app.config import settings
 from app.schemas.stage1_normalize import Stage1Result, FileType
 from app.schemas.stage2_screen import Stage2Result
 from app.services.dicom_service import read_dicom_meta, sort_dicom_files_by_z
@@ -35,9 +36,7 @@ def run_stage2(task_id: str, stage1: Stage1Result) -> Stage2Result:
     ]
 
     # 也递归扫描 extracted 目录（ZIP 解压后整批文件可能不在 normalized_files 里）
-    extracted_dir = Path(
-        f"{__import__('app.config', fromlist=['settings']).settings.STORAGE_ROOT}"
-    ).resolve() / "processed" / task_id / "extracted"
+    extracted_dir = Path(settings.STORAGE_ROOT).resolve() / "processed" / task_id / "extracted"
     if extracted_dir.exists():
         for p in extracted_dir.rglob("*"):
             if p.is_file() and p.suffix.lower() in (".dcm", ""):

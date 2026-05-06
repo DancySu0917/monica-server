@@ -15,8 +15,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app.config import settings
-from app.database import SessionLocal
-from app.models.task import Task  # 仅用于 health check
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 logger = logging.getLogger(__name__)
@@ -67,12 +65,18 @@ async def wx_login(body: WxLoginRequest):
 async def _exchange_openid(code: str) -> str:
     """
     调用微信 jscode2session 接口获取 openid。
-    在测试/开发环境（无真实 appid）返回 mock openid。
+
+    开发模式：code 以 "dev_" 开头时跳过微信验证，直接用 code 后缀作为 openid。
+    用于微信开发者工具模拟器无法获取真实 code 的场景。
     """
+    # ── 开发模式绕过 ──────────────────────────────────────────────
+    if code.startswith("dev_"):
+        dev_openid = code[4:] or "dev_test_openid"
+        logger.info(f"[Auth] 开发模式登录，openid={dev_openid}")
+        return dev_openid
+
     if not settings.WX_APPID or not settings.WX_SECRET:
-        # DEV 模式：直接用 code 作为 openid（方便联调）
-        logger.warning("[Auth] WX_APPID/WX_SECRET 未配置，使用开发模式 mock openid")
-        return f"dev_{code[:20]}"
+        raise HTTPException(status_code=503, detail="微信登录未配置，请联系管理员")
 
     url = (
         f"https://api.weixin.qq.com/sns/jscode2session"

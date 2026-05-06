@@ -41,11 +41,20 @@ def extract_json_from_llm(raw: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # 策略 3：正则提取第一个完整 JSON 对象
+    # 策略 3：正则提取第一个完整 JSON 对象（re.DOTALL 支持多行）
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    # 策略 3b：尝试从第一个 { 到最后一个 } 之间提取（处理前后有多余文本的情况）
+    start = raw.find("{")
+    end   = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(raw[start:end + 1])
         except json.JSONDecodeError:
             pass
 

@@ -13,6 +13,12 @@ from arq.connections import RedisSettings
 
 from app.config import settings
 
+# ARQ Worker 是独立进程，需要单独初始化日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    force=True,  # 覆盖 ARQ 框架默认的日志配置
+)
 logger = logging.getLogger(__name__)
 
 
