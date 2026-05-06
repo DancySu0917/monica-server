@@ -28,7 +28,7 @@ APP_DIR="/opt/monica-server"
 APP_USER="monica"
 LOG_DIR="/var/log/monica"
 VENV_DIR="${APP_DIR}/venv"
-PYTHON_BIN="python3"           # 系统 Python，要求 >= 3.11
+PYTHON_BIN="python3.11"           # 系统 Python，要求 >= 3.11
 NGINX_CONF_DEST="/etc/nginx/sites-available/monica"
 SUPERVISOR_CONF_DEST="/etc/supervisor/conf.d/monica.conf"
 
@@ -58,27 +58,39 @@ cmd_install() {
     info "🖥️  裸机安装 Monica Server..."
     info "项目目录: ${SCRIPT_DIR}"
 
-    # ── 1. 检查 Python 版本 ─────────────────────────────────────
-    step "检查 Python 版本"
-    $PYTHON_BIN --version >/dev/null 2>&1 || error "未找到 python3，请先安装：apt install python3.11"
-    local py_ver
-    py_ver=$($PYTHON_BIN -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-    python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)" \
-        || error "Python 版本 ${py_ver} 过低，需要 >= 3.11"
-    success "Python ${py_ver} ✓"
-
-    # ── 2. 安装系统依赖 ─────────────────────────────────────────
+    # ── 1. 安装系统依赖（含 Python 3.11）───────────────────────
     step "安装系统依赖（apt）"
     apt-get update -qq
+
+    # 安装 deadsnakes PPA 以获取 Python 3.11（Ubuntu 20.04 默认只有 3.8）
+    if ! python3.11 --version >/dev/null 2>&1; then
+        info "Python 3.11 未安装，正在通过 deadsnakes PPA 安装..."
+        apt-get install -y --no-install-recommends software-properties-common -q
+        add-apt-repository -y ppa:deadsnakes/ppa
+        apt-get update -qq
+        apt-get install -y --no-install-recommends \
+            python3.11 python3.11-venv python3.11-dev python3.11-distutils -q
+        success "Python 3.11 安装完成"
+    else
+        success "Python 3.11 已存在，跳过安装"
+    fi
+
     apt-get install -y --no-install-recommends \
-        python3-pip python3-venv python3-dev \
         gcc g++ \
         libgl1 libglib2.0-0 libgomp1 libsm6 libxrender1 libxext6 \
         redis-server \
         supervisor \
         nginx \
-        curl
+        curl -q
     success "系统依赖安装完成"
+
+    # ── 2. 检查 Python 版本 ─────────────────────────────────────
+    step "检查 Python 版本"
+    PYTHON_BIN="python3.11"
+    $PYTHON_BIN --version >/dev/null 2>&1 || error "Python 3.11 安装失败，请手动执行：apt install python3.11"
+    local py_ver
+    py_ver=$($PYTHON_BIN -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    success "Python ${py_ver} ✓  (${PYTHON_BIN})"
 
     # ── 3. 创建运行用户 ─────────────────────────────────────────
     step "创建运行用户 ${APP_USER}"
