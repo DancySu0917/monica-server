@@ -13,7 +13,9 @@ class AnalysisResult(Base):
     version           = Column(Integer, default=1)
     findings          = Column(Text)           # JSON
     impression        = Column(Text)
-    nodule_assessment = Column(Text)           # JSON
+    nodule_assessment   = Column(Text)         # JSON
+    pulmonary_findings  = Column(Text)         # JSON，非结节类肺部异常
+    overall_lung_rads   = Column(String, default="")  # 整体 Lung-RADS
     recommendations   = Column(Text)           # JSON
     confidence        = Column(Float)
     limitations       = Column(Text)           # JSON

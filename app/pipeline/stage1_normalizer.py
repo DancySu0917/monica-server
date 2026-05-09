@@ -75,7 +75,10 @@ def run_stage1(task_id: str, file_path: str) -> Stage1Result:
             try:
                 ds = pydicom.dcmread(fp)
                 deidentify_dicom(ds)
-                ds.save_as(fp, write_like_original=False)
+                # write_like_original=True：保留原始 Transfer Syntax 和像素编码。
+                # 若改为 False，pydicom 会重写文件头但不解压像素数据，
+                # 导致压缩格式（JPEG Lossless 等）在 Stage4 渲染时报 decoder 缺失。
+                ds.save_as(fp, write_like_original=True)
                 meta = read_dicom_meta(fp)
                 dicom_series_list = [
                     DicomSeriesInfo(

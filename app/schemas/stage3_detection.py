@@ -14,6 +14,7 @@ class NoduleCandidate(BaseModel):
     center_mm:              List[float]
     estimated_diameter_mm:  float
     confidence:             float
+    density_type:           str = "unknown"  # "GGN" / "solid" / "unknown" — 由 Stage 3 HU 均值判定
     window_center:          float = -600.0
     window_width:           float = 1500.0
 

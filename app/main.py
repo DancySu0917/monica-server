@@ -14,21 +14,17 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from app.config import settings
+from app.utils.rate_limit import limiter   # 集中管理，避免各 router 循环导入
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-
-# ── 限流 ──────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
 
 
 # ── 生命周期 ──────────────────────────────────────────────────────
@@ -104,12 +100,14 @@ from app.api.upload   import router as upload_router
 from app.api.analysis import router as analysis_router
 from app.api.stream   import router as stream_router
 from app.api.result   import router as result_router
+from app.api.admin    import router as admin_router
 
 app.include_router(auth_router)
 app.include_router(upload_router)
 app.include_router(analysis_router)
 app.include_router(stream_router)
 app.include_router(result_router)
+app.include_router(admin_router)
 
 
 # ── 全局异常处理 ──────────────────────────────────────────────────

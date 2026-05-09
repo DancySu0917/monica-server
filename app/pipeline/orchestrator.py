@@ -26,6 +26,9 @@ from app.utils.thread_pool import run_in_thread
 
 logger = logging.getLogger(__name__)
 
+# Stage6 失败判定关键词（提取为模块常量，避免每次调用重新创建）
+_STAGE6_FAIL_KEYWORDS = ("失败", "不可用", "感知失败", "fallback", "无法生成")
+
 # 阶段进度百分比
 STAGE_PROGRESS = {
     "stage1": 10,
@@ -45,6 +48,8 @@ async def run_pipeline(
     scan_type:      str = "CT",
     clinical_notes: str = "",
     model:          str = "",
+    provider:       str = "",
+    use_llm_cache:  bool = True,
 ) -> None:
     """
     主入口：ARQ Worker 调用此函数。
@@ -102,25 +107,62 @@ async def run_pipeline(
         # Stage 6: CoT 三步推理（async，直接 await）
         _update_task(task_id, stage="stage6", progress=STAGE_PROGRESS["stage5"] + 5)
         from app.pipeline.stage6_llm import run_stage6
-        # 配额检查
-        await _check_quota(user_id)
 
-        report, cot_snapshot = await run_stage6(task_id, stage5, model)
-        _save_stage_result(task_id, "stage6", cot_snapshot)
-        _update_task(task_id, stage="stage6", progress=STAGE_PROGRESS["stage6"])
+        # 提取 file_hash（upload 时已将文件命名为 SHA-256）
+        file_hash = _extract_file_hash(file_path)
+        model_key = model or settings.DEFAULT_MODEL
 
-        # Stage6 完全失败（全部 fallback）则标记为 error，不继续落库
+        # ① 查 LLM 缓存
+        cached = None
+        if use_llm_cache and file_hash:
+            cached = await _load_llm_cache(file_hash, scan_type, model_key)
+
+        if cached is not None:
+            # ② 缓存命中：跳过 Stage6 LLM 调用，直接复用结果
+            report, cot_snapshot = cached
+            logger.info(
+                f"[Pipeline] LLM 缓存命中，跳过 Stage6: "
+                f"task_id={task_id}  file_hash={file_hash[:12]}…  model={model_key}"
+            )
+            _save_stage_result(task_id, "stage6", cot_snapshot)
+            _update_task(task_id, stage="stage6", progress=STAGE_PROGRESS["stage6"])
+            # 缓存命中不消耗 Token，无需配额操作
+        else:
+            # ③ 未命中：正常调用 LLM（预估配额检查 + 实际修正）
+            await _check_quota(user_id)
+
+            report, cot_snapshot = await run_stage6(task_id, stage5, model, provider)
+            _save_stage_result(task_id, "stage6", cot_snapshot)
+            _update_task(task_id, stage="stage6", progress=STAGE_PROGRESS["stage6"])
+
+            # 用实际消耗的 Token 数修正配额（原预估小于实际消耗）
+            actual_tokens = (
+                (cot_snapshot.step1_tokens or 0)
+                + (cot_snapshot.step2_tokens or 0)
+                + (cot_snapshot.step3_tokens or 0)
+            )
+            await _adjust_quota(user_id, estimated_tokens=10_000, actual_tokens=actual_tokens)
+
+            # ④ 写入缓存（开关开启且有 file_hash）
+            if use_llm_cache and file_hash:
+                await _save_llm_cache(file_hash, scan_type, model_key, report, cot_snapshot)
+
+        # Stage6 完全失败（全部 fallback / confidence=0）则标记为 error，不落库
+        # 注意：缓存命中时不会走到这里产生失败（缓存内容是之前成功的结果）
         is_llm_failed = (
             report.confidence == 0.0
             and report.findings
-            and any("失败" in f or "不可用" in f for f in report.findings)
+            and any(kw in f for f in report.findings for kw in _STAGE6_FAIL_KEYWORDS)
         )
         if is_llm_failed:
             _update_task(
                 task_id,
                 status="error",
                 stage="stage6",
-                error_message="LLM 分析失败：所有模型均返回 fallback，请重新提交任务",
+                error_message=(
+                    "LLM 分析失败：CT图像感知均返回 fallback，无法生成可靠报告。"
+                    "请确认已配置支持多模态的 LLM 后端（gemini 系列 / gpt-4o），或充值 BAI API Key。"
+                ),
             )
             logger.error(f"[Pipeline] Stage6 LLM 全部失败，任务标记为 error: {task_id}")
             return
@@ -185,14 +227,33 @@ def _save_stage_result(task_id: str, stage: str, output_obj):
 
 
 async def _check_quota(user_id: str):
-    """任务前检查 Token 配额（估算 10,000 tokens/次）"""
+    """任务前预估配额检查（估算 10,000 tokens/次）"""
     try:
-        from app.services.quota_service import QuotaService, QuotaExceededError
+        from app.services.quota_service import QuotaService
         qs = QuotaService()
         await qs.check_and_consume(user_id, estimated_tokens=10_000)
     except Exception as e:
         # quota 检查失败不阻塞任务（Redis 不可用时降级放行）
         logger.warning(f"[Pipeline] 配额检查跳过: {e}")
+
+
+async def _adjust_quota(user_id: str, estimated_tokens: int, actual_tokens: int):
+    """
+    Stage6 完成后，用实际 Token 消耗修正配额。
+    如果实际 > 预估，补扣差额；如果实际 < 预估，退还多扣的配额。
+    调用失败时静默处理（Redis 不可用时降级放行）。
+    """
+    try:
+        from app.services.quota_service import QuotaService
+        qs = QuotaService()
+        await qs.adjust(user_id, estimated_tokens=estimated_tokens, actual_tokens=actual_tokens)
+        diff = actual_tokens - estimated_tokens
+        logger.info(
+            f"[Pipeline] 配额修正: user={user_id} 预估={estimated_tokens} "
+            f"实际={actual_tokens} diff={diff:+d}"
+        )
+    except Exception as e:
+        logger.warning(f"[Pipeline] 配额修正失败（非致命）: {e}")
 
 
 async def _cleanup_intermediates(task_id: str):
@@ -204,3 +265,74 @@ async def _cleanup_intermediates(task_id: str):
         await run_in_thread(dg.clean_processed_files, task_id)
     except Exception as e:
         logger.debug(f"[Pipeline] 清理失败（非致命）: {e}")
+
+
+# ── LLM 缓存辅助 ──────────────────────────────────────────────────
+
+def _extract_file_hash(file_path: str) -> str:
+    """
+    从文件路径中提取 file_hash（SHA-256）。
+    upload 完成时文件以其 SHA-256 为文件名存储，例如：
+        .../uploads/user_id/<sha256>.zip
+    返回文件名（不含后缀），失败时返回空字符串。
+    """
+    try:
+        stem = Path(file_path).stem
+        # SHA-256 = 64 位 hex
+        if len(stem) == 64 and all(c in "0123456789abcdefABCDEF" for c in stem):
+            return stem.lower()
+    except Exception:
+        pass
+    return ""
+
+
+async def _load_llm_cache(
+    file_hash: str,
+    scan_type: str,
+    model: str,
+) -> tuple | None:
+    """
+    从 Redis 读取 LLM 缓存，返回 (AnalysisReport, CoTIntermediateResult) 或 None。
+    Redis 不可用时静默降级，返回 None 让主流程正常调用 LLM。
+    """
+    try:
+        from app.services.llm_cache_service import LLMCacheService
+        from app.schemas.stage7_report import AnalysisReport
+        from app.schemas.stage6_cot import CoTIntermediateResult
+
+        cache_svc = LLMCacheService()
+        hit = await cache_svc.get(file_hash, scan_type, model)
+        if hit is None:
+            return None
+        report_dict, cot_dict = hit
+        report       = AnalysisReport.model_validate(report_dict)
+        cot_snapshot = CoTIntermediateResult.model_validate(cot_dict)
+        return report, cot_snapshot
+    except Exception as e:
+        logger.warning(f"[Pipeline] LLM 缓存读取失败（降级继续）: {e}")
+        return None
+
+
+async def _save_llm_cache(
+    file_hash: str,
+    scan_type: str,
+    model: str,
+    report,
+    cot_snapshot,
+) -> None:
+    """
+    将 LLM 推理结果写入 Redis 缓存。
+    Redis 不可用或序列化失败时静默处理，不影响主流程。
+    """
+    try:
+        from app.services.llm_cache_service import LLMCacheService
+        cache_svc = LLMCacheService()
+        await cache_svc.set(
+            file_hash=file_hash,
+            scan_type=scan_type,
+            model=model,
+            report_dict=report.model_dump(),
+            cot_dict=cot_snapshot.model_dump(),
+        )
+    except Exception as e:
+        logger.warning(f"[Pipeline] LLM 缓存写入失败（非致命）: {e}")

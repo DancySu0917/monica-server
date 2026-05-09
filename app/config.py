@@ -20,12 +20,19 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # LLM 默认模型（Evolink 降级链起点）
-    DEFAULT_MODEL: str = "gemini-2.5-flash"
+    # LLM 默认模型
+    DEFAULT_MODEL: str = "gpt-5.4-nano"
 
-    # Evolink 代理（Gemini 协议 + Bearer 鉴权）
+    # api.b.ai — OpenAI 兼容协议，首选（实测仅 gpt-5.4-nano 免费可用，gemini 系列需充值）
+    BAI_API_KEY: str = ""
+    BAI_BASE_URL: str = "https://api.b.ai/v1"
+
+    # Evolink 代理（OpenAI 兼容协议，api.b.ai 不可用时备用）
     EVOLINK_API_KEY: str = ""
-    EVOLINK_BASE_URL: str = "https://direct.evolink.ai/v1beta/models"
+    EVOLINK_BASE_URL: str = "https://direct.evolink.ai/v1"
+
+    # Google Gemini 直连（最终兜底，免费层级可用）
+    GEMINI_API_KEY: str = ""
 
     # 存储（支持相对路径和绝对路径，最终统一转为绝对路径）
     STORAGE_ROOT: str = "./storage"
@@ -45,7 +52,11 @@ class Settings(BaseSettings):
     # CORS（逗号分隔，留空则拒绝所有跨域请求）
     ALLOWED_ORIGINS: str = ""
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    # 开发模式：开启后允许 code="monica-code" 或 "dev_xxx" 绕过微信鉴权
+    # ⚠️  生产环境必须设置为 false（默认 false，安全优先）
+    DEV_MODE: bool = False
+
+    model_config = {"env_file": (".env", ".env.local"), "extra": "ignore"}
 
     @property
     def storage_root_abs(self) -> Path:
@@ -83,10 +94,12 @@ class Settings(BaseSettings):
         warnings = []
         if self.SECRET_KEY in ("change-me-in-production", "your-secret-key-here-min-32-chars-please-change-this"):
             warnings.append("SECRET_KEY 仍为默认值，请立即修改！")
-        if not self.EVOLINK_API_KEY:
-            warnings.append("EVOLINK_API_KEY 未设置，LLM 调用将失败")
+        if not self.BAI_API_KEY and not self.EVOLINK_API_KEY and not self.GEMINI_API_KEY:
+            warnings.append("BAI_API_KEY / EVOLINK_API_KEY / GEMINI_API_KEY 均未设置，LLM 调用将失败")
         if not self.cors_origins:
             warnings.append("ALLOWED_ORIGINS 未设置，所有跨域请求将被拒绝")
+        if self.DEV_MODE:
+            warnings.append("DEV_MODE=true：微信登录绕过已开启，请勿在生产环境使用！")
         for w in warnings:
             logger.warning(f"[Config] ⚠️  {w}")
 

@@ -55,18 +55,20 @@ async def get_result(
         return field
 
     return {
-        "task_id":           task_id,
-        "version":           result.version,
-        "findings":          _parse(result.findings) or [],
-        "impression":        result.impression or "",
-        "nodule_assessment": _parse(result.nodule_assessment) or [],
-        "recommendations":   _parse(result.recommendations) or [],
-        "confidence":        result.confidence or 0.0,
-        "limitations":       _parse(result.limitations) or [],
-        "disclaimer":        result.disclaimer,
-        "llm_model":         result.llm_model,
-        "created_at":        result.created_at.isoformat() if result.created_at else None,
-        "eval_scores":       _parse(result.eval_scores),
+        "task_id":            task_id,
+        "version":            result.version,
+        "findings":           _parse(result.findings) or [],
+        "impression":         result.impression or "",
+        "nodule_assessment":  _parse(result.nodule_assessment) or [],
+        "pulmonary_findings": _parse(result.pulmonary_findings) or [],
+        "overall_lung_rads":  result.overall_lung_rads or "",
+        "recommendations":    _parse(result.recommendations) or [],
+        "confidence":         result.confidence or 0.0,
+        "limitations":        _parse(result.limitations) or [],
+        "disclaimer":         result.disclaimer,
+        "llm_model":          result.llm_model,
+        "created_at":         result.created_at.isoformat() if result.created_at else None,
+        "eval_scores":        _parse(result.eval_scores),
         "tokens": {
             "step1": result.tokens_step1,
             "step2": result.tokens_step2,
@@ -125,7 +127,14 @@ async def get_selected_slices(
     return {"task_id": task_id, "slices": slices}
 
 
-@router.get("/{task_id}/stages", summary="获取各阶段中间产物（调试/审计用）")
+@router.get(
+    "/{task_id}/stages",
+    summary="获取各阶段中间产物（调试/审计用）",
+    description=(
+        "⚠️ 此接口用于内部调试和审计，返回各流水线阶段的执行状态。\n"
+        "生产环境建议通过 Nginx 限制此路径的访问来源，或改为 admin scope 保护。"
+    ),
+)
 async def get_stage_results(
     task_id: str,
     user: dict = Depends(get_current_user),

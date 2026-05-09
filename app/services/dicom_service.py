@@ -7,7 +7,7 @@ DICOM 标准允许很多字段以 MultiValue 形式存在，直接 float(ds.get(
 import pydicom
 import numpy as np
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 try:
     from pydicom.multival import MultiValue
@@ -122,6 +122,40 @@ def deidentify_dicom(ds: pydicom.Dataset) -> pydicom.Dataset:
         except Exception:
             pass
     return ds
+
+
+# ── 肺野提取（Stage3 / Stage4 共用）─────────────────────────────
+
+def extract_lung_mask(
+    hu: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    从 HU 数组中提取体内掩膜和肺野空气掩膜（Stage3/Stage4 共用逻辑）。
+
+    预处理流程：
+      1. body_mask：排除体外空气（HU > -950），去除小对象、闭运算、填洞
+      2. lung_air：在 body_mask 内找低密度肺野（-950 < HU < -300），去小对象、闭运算
+
+    返回：
+      (body_mask, lung_air) — 均为 bool 数组，形状与 hu 相同
+
+    注意：此函数纯 CPU 密集，应在线程池中调用（run_in_thread）以避免阻塞事件循环。
+    """
+    from skimage import morphology
+    from scipy import ndimage as ndi
+
+    # Step 1: 体内掩膜（排除体外空气）
+    body_mask: np.ndarray = hu > -950
+    body_mask = morphology.remove_small_objects(body_mask, min_size=1000)
+    body_mask = morphology.binary_closing(body_mask, morphology.disk(5))
+    body_mask = ndi.binary_fill_holes(body_mask)
+
+    # Step 2: 肺野空气区域（-950 < HU < -300，在体内）
+    lung_air: np.ndarray = (hu > -950) & (hu < -300) & body_mask
+    lung_air = morphology.remove_small_objects(lung_air, min_size=500)
+    lung_air = morphology.binary_closing(lung_air, morphology.disk(3))
+
+    return body_mask, lung_air
 
 
 # ── 序列排序 + 文件读取 ───────────────────────────────────────────

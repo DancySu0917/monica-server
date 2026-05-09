@@ -24,11 +24,15 @@ aiofiles==23.2.1
 # ── DICOM / 影像处理 ─────────────────────────────────────────────
 pydicom==2.4.4
 SimpleITK==2.5.4
-numpy==1.26.4
+numpy>=1.26.4
 opencv-python-headless==4.10.0.84
 scikit-image==0.25.2
 Pillow==10.3.0
 ImageHash==4.3.1
+# DICOM 压缩格式解码支持（JPEG Lossless/LS/J2K 等 Transfer Syntax）
+pylibjpeg==2.1.0
+pylibjpeg-libjpeg==2.4.0
+pylibjpeg-openjpeg==2.5.0
 
 # ── 重试 ─────────────────────────────────────────────────────────
 tenacity==8.2.3

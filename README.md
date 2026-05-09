@@ -371,7 +371,7 @@ sudo certbot --nginx -d your-domain.com
 | `WX_SECRET` | `` | 微信小程序 Secret |
 | `DATABASE_URL` | `sqlite:///./monica.db` | SQLAlchemy 数据库连接串 |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis 连接地址 |
-| `DEFAULT_MODEL` | `gemini-2.5-flash` | 默认 LLM 模型（降级链起点） |
+| `DEFAULT_MODEL` | `gemini-3-flash` | 默认 LLM 模型（降级链起点） |
 | `EVOLINK_API_KEY` | `` | Evolink 代理 API Key，**必须填写** |
 | `EVOLINK_BASE_URL` | `https://direct.evolink.ai/v1beta/models` | Evolink 请求地址 |
 | `STORAGE_ROOT` | `./storage` | 文件存储根目录（支持相对/绝对路径） |

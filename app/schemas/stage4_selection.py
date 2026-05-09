@@ -3,9 +3,10 @@ from typing import List, Optional, Dict
 
 
 class DualWindowPng(BaseModel):
-    """同一切片的双窗位渲染结果"""
-    lung_window_path:       str    # 肺窗 (WC=-600, WW=1500)
+    """同一切片的多窗位渲染结果"""
+    lung_window_path:       str    # 肺窗 (WC=-600, WW=1200)
     mediastinum_window_path: str   # 纵隔窗 (WC=40, WW=400)
+    ggn_window_path:        str = ""   # GGN增强窗 (WC=-500, WW=600) — 窄窗提高磨玻璃结节对比度
     phash_lung:             str    # 感知哈希，用于去重
     phash_mediastinum:      str    # 纵隔窗 pHash
 

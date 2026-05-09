@@ -11,10 +11,11 @@ import logging
 
 import httpx
 import jwt
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
 from app.config import settings
+from app.utils.rate_limit import limiter
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 logger = logging.getLogger(__name__)
@@ -42,7 +43,8 @@ class WxLoginResponse(BaseModel):
 # ── 路由 ──────────────────────────────────────────────────────────
 
 @router.post("/wx_login", response_model=WxLoginResponse, summary="微信小程序登录")
-async def wx_login(body: WxLoginRequest):
+@limiter.limit("10/minute")   # 防暴力枚举：每 IP 每分钟最多 10 次登录
+async def wx_login(request: Request, body: WxLoginRequest):
     """
     凭 wx.login() 返回的临时 code 换取 openid，然后签发 JWT。
     """
@@ -66,14 +68,20 @@ async def _exchange_openid(code: str) -> str:
     """
     调用微信 jscode2session 接口获取 openid。
 
-    开发模式：code 以 "dev_" 开头时跳过微信验证，直接用 code 后缀作为 openid。
-    用于微信开发者工具模拟器无法获取真实 code 的场景。
+    开发模式绕过（两种方式）：
+    1. code == "monica-code"：固定测试账号，openid=monica_test_user，免去每次获取微信 code 的流程
+    2. code 以 "dev_" 开头：自定义 openid，如 dev_alice → openid=alice
+    以上两种方式均不调用微信接口，仅用于本地开发测试。
     """
-    # ── 开发模式绕过 ──────────────────────────────────────────────
-    if code.startswith("dev_"):
-        dev_openid = code[4:] or "dev_test_openid"
-        logger.info(f"[Auth] 开发模式登录，openid={dev_openid}")
-        return dev_openid
+    # ── 开发模式绕过（仅在 DEV_MODE=true 时生效，生产环境必须关闭）────
+    if settings.DEV_MODE:
+        if code == "monica-code":
+            logger.info("[Auth] 开发模式：使用固定测试 code 登录，openid=monica_test_user")
+            return "monica_test_user"
+        if code.startswith("dev_"):
+            dev_openid = code[4:] or "dev_test_openid"
+            logger.info(f"[Auth] 开发模式：自定义 openid={dev_openid}")
+            return dev_openid
 
     if not settings.WX_APPID or not settings.WX_SECRET:
         raise HTTPException(status_code=503, detail="微信登录未配置，请联系管理员")

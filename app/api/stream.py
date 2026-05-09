@@ -24,7 +24,7 @@ from app.models.task import Task
 router = APIRouter(prefix="/stream", tags=["Stream"])
 logger = logging.getLogger(__name__)
 
-HEARTBEAT_INTERVAL = 15   # 秒
+HEARTBEAT_INTERVAL = 3    # 秒（轮询间隔，状态变化后最迟 3s 推送）
 MAX_WAIT_SECONDS   = 600  # 10 分钟超时
 
 
@@ -99,15 +99,22 @@ async def _event_generator(
                 result = _load_result(task_id)
                 yield _sse_event("done", {"task_id": task_id, "result": result})
             elif task.status == "rejected":
+                # suggestions 存储为 JSON 字符串，需反序列化后传给前端
+                import json as _json
+                suggestions_raw = getattr(task, "suggestions", None) or "[]"
+                try:
+                    suggestions = _json.loads(suggestions_raw)
+                except Exception:
+                    suggestions = []
                 yield _sse_event("rejected", {
                     "task_id":       task_id,
-                    "reject_reason": task.reject_reason,
-                    "suggestions":   task.suggestions,
+                    "reject_reason": task.reject_reason or "影像质量不合格",
+                    "suggestions":   suggestions,
                 })
             else:
                 yield _sse_event("error", {
                     "task_id":       task_id,
-                    "error_message": task.error_message,
+                    "error_message": task.error_message or "未知错误",
                 })
             return
 

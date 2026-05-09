@@ -8,12 +8,13 @@
 """
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, field_validator
 
 from app.api.deps import get_current_user
 from app.services.file_service import FileService, DiskGuard
 from app.config import settings
+from app.utils.rate_limit import limiter
 
 router     = APIRouter(prefix="/upload", tags=["Upload"])
 logger     = logging.getLogger(__name__)
@@ -69,14 +70,16 @@ class UploadChunkResponse(BaseModel):
 
 
 class CompleteUploadResponse(BaseModel):
-    file_id:    str   # SHA256
-    file_path:  str
+    file_id:    str   # SHA256（服务器端实际计算值）
+    # 注意：不返回 file_path，避免暴露服务器内部目录结构
 
 
 # ── 路由 ──────────────────────────────────────────────────────────
 
 @router.post("/init", summary="初始化分片上传")
+@limiter.limit("30/minute")   # 每 IP 每分钟最多 30 次初始化上传
 async def init_upload(
+    request: Request,
     body: InitUploadRequest,
     user: dict = Depends(get_current_user),
 ):
@@ -89,6 +92,17 @@ async def init_upload(
         file_sha256=body.file_sha256,
     )
     return result
+
+
+# upload_id 合法格式：up_ 开头 + 16 位十六进制
+_UPLOAD_ID_RE = __import__("re").compile(r"^up_[0-9a-f]{16}$")
+
+
+def _validate_upload_id(upload_id: str) -> str:
+    """校验 upload_id 格式，非法时抛 422。"""
+    if not upload_id or not _UPLOAD_ID_RE.match(upload_id):
+        raise HTTPException(status_code=422, detail="upload_id 格式非法")
+    return upload_id
 
 
 @router.put("/chunk", summary="上传单个分片")
@@ -109,6 +123,7 @@ async def upload_chunk(
 
     if not upload_id or chunk_index_str is None:
         raise HTTPException(status_code=422, detail="缺少 upload_id 或 chunk_index 参数")
+    upload_id = _validate_upload_id(upload_id)
 
     try:
         chunk_index = int(chunk_index_str)
@@ -125,7 +140,9 @@ async def upload_chunk(
         raise HTTPException(status_code=422, detail="分片内容为空")
 
     try:
-        received = file_svc.save_chunk(upload_id, chunk_index, data)
+        received = file_svc.save_chunk(upload_id, chunk_index, data, user_id=user["user_id"])
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -148,8 +165,11 @@ async def get_received_chunks(
     upload_id: str,
     user: dict = Depends(get_current_user),
 ):
+    upload_id = _validate_upload_id(upload_id)
     try:
-        received = file_svc.get_received_chunks(upload_id)
+        received = file_svc.get_received_chunks(upload_id, user_id=user["user_id"])
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"upload_id": upload_id, "received_chunks": received}
@@ -178,6 +198,13 @@ async def delete_file_record(
         rec = db.query(FileRecord).filter_by(file_hash=file_id).first()
         if not rec:
             raise HTTPException(status_code=404, detail=f"file_id={file_id} 不存在")
+        # 归属校验：只允许删除自己上传的文件（通过 storage_path 中的 user_id 目录判断）
+        # DEV_MODE 下跳过校验，方便测试时清理不同账号上传的文件
+        if not settings.DEV_MODE and rec.storage_path and f"/{user['user_id']}/" not in rec.storage_path:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="无权删除该文件",
+            )
 
         storage_path = rec.storage_path
 
@@ -215,14 +242,19 @@ async def delete_file_record(
 
 
 @router.post("/complete", summary="合并所有分片，校验 SHA256")
+@limiter.limit("30/minute")   # 每 IP 每分钟最多 30 次合并
 async def complete_upload(
+    request: Request,
     upload_id: str,
     user: dict = Depends(get_current_user),
 ):
     try:
-        final_path, file_sha256 = file_svc.complete_upload(upload_id)
+        final_path, file_sha256 = file_svc.complete_upload(upload_id, user_id=user["user_id"])
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     # file_id 使用完整 SHA256（64位），与 FileRecord.file_hash 保持一致
-    return CompleteUploadResponse(file_id=file_sha256, file_path=final_path)
+    # 不返回 file_path，避免暴露服务器内部目录结构
+    return CompleteUploadResponse(file_id=file_sha256)

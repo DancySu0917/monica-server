@@ -7,9 +7,10 @@ GET  /analysis/status/{task_id} → 任务状态轮询
 import hashlib
 import logging
 import uuid
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
 from app.api.deps import get_current_user
@@ -17,37 +18,33 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models.task import Task
 from app.services.file_service import DiskGuard
+from app.utils.rate_limit import limiter
 
 router     = APIRouter(prefix="/analysis", tags=["Analysis"])
 logger     = logging.getLogger(__name__)
 disk_guard = DiskGuard()
 
-# ARQ Redis 连接池单例（应用生命周期内复用，避免每次请求新建连接）
-_arq_redis_pool = None
-
-
 async def _get_arq_pool():
-    """获取或创建 ARQ Redis 连接池（惰性初始化，进程内单例）"""
-    global _arq_redis_pool
-    if _arq_redis_pool is None:
-        from arq.connections import create_pool, RedisSettings
-        parsed = urlparse(settings.REDIS_URL)
-        _arq_redis_pool = await create_pool(
-            RedisSettings(
-                host=parsed.hostname or "localhost",
-                port=parsed.port or 6379,
-                database=int(parsed.path.strip("/") or 0),
-            )
+    """每次入队时创建短连接，避免单例在热重载后失效"""
+    from arq.connections import create_pool, RedisSettings
+    parsed = urlparse(settings.REDIS_URL)
+    return await create_pool(
+        RedisSettings(
+            host=parsed.hostname or "localhost",
+            port=parsed.port or 6379,
+            database=int(parsed.path.strip("/") or 0),
         )
-    return _arq_redis_pool
+    )
 
 
 class CreateAnalysisRequest(BaseModel):
     file_id:         str          # complete_upload 返回的 SHA256
     scan_type:       str = "CT"   # CT / MRI / PET
-    clinical_notes:  str = ""     # 医生补充说明（可选）
+    clinical_notes:  str = ""     # 医生补充说明（可选，最多 500 字符，防 Prompt Injection）
     model:           str = ""     # 指定模型（空则用默认降级链）
+    provider:        str = ""     # 指定后端：bai / evolink / gemini（空则自动降级）
     idempotency_key: str = ""     # 幂等键（空则自动生成）
+    use_llm_cache:   bool = True  # 是否使用 LLM 结果缓存（True=命中缓存直接返回，跳过 Stage6）
 
     @field_validator("file_id")
     @classmethod
@@ -65,6 +62,21 @@ class CreateAnalysisRequest(BaseModel):
             raise ValueError(f"scan_type 必须为 {allowed} 之一")
         return v.upper()
 
+    @field_validator("clinical_notes")
+    @classmethod
+    def validate_clinical_notes(cls, v: str) -> str:
+        if len(v) > 500:
+            raise ValueError("clinical_notes 最多 500 个字符，请精简描述")
+        return v
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        allowed = {"", "bai", "evolink", "gemini"}
+        if v.lower() not in allowed:
+            raise ValueError(f"provider 必须为 {allowed} 之一")
+        return v.lower()
+
 
 class CreateAnalysisResponse(BaseModel):
     task_id:         str
@@ -73,7 +85,9 @@ class CreateAnalysisResponse(BaseModel):
 
 
 @router.post("/create", response_model=CreateAnalysisResponse, summary="创建分析任务")
+@limiter.limit("20/minute")   # 防滥用：每 IP 每分钟最多 20 次提交
 async def create_analysis(
+    request: Request,
     body: CreateAnalysisRequest,
     user: dict = Depends(get_current_user),
 ):
@@ -90,9 +104,22 @@ async def create_analysis(
     with SessionLocal() as db:
         existing = db.query(Task).filter_by(idempotency_key=idempotency_key).first()
         if existing:
+            # pending 超过 5 分钟视为僵死任务（入队失败但状态未更新），自动释放
+            PENDING_TIMEOUT = timedelta(minutes=5)
+            is_stale_pending = (
+                existing.status == "pending"
+                and existing.created_at is not None
+                and datetime.now(timezone.utc) - existing.created_at.replace(tzinfo=timezone.utc) > PENDING_TIMEOUT
+            )
+            if is_stale_pending:
+                existing.status = "error"
+                existing.error_message = "任务入队超时，自动释放"
+                existing.idempotency_key = f"__old__{existing.task_id}"
+                db.commit()
+                logger.warning(f"[Analysis] 任务 {existing.task_id} pending 超时，已自动释放幂等键")
             # 只复用"进行中"的任务，避免重复入队
             # done/error/failed/rejected 都允许重新提交（用户可以重跑）
-            if existing.status in ("pending", "processing"):
+            elif existing.status in ("pending", "processing"):
                 return CreateAnalysisResponse(
                     task_id=existing.task_id,
                     status=existing.status,
@@ -141,6 +168,8 @@ async def create_analysis(
             scan_type=body.scan_type,
             clinical_notes=body.clinical_notes,
             model=model,
+            provider=body.provider,
+            use_llm_cache=body.use_llm_cache,
         )
     except Exception as e:
         logger.error(f"[Analysis] 任务入队失败: {e}")

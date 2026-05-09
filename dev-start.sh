@@ -329,7 +329,7 @@ DATABASE_URL=sqlite:///./monica.db
 REDIS_URL=redis://localhost:6379/0
 
 # LLM
-DEFAULT_MODEL=gemini-2.5-flash
+DEFAULT_MODEL=gemini-3-flash
 EVOLINK_API_KEY=${evolink_key:-your_evolink_api_key_here}
 EVOLINK_BASE_URL=https://direct.evolink.ai/v1beta/models
 
@@ -342,7 +342,7 @@ CHUNK_SIZE_MB=5
 ARQ_MAX_JOBS=2
 ARQ_JOB_TIMEOUT=600
 DICOM_BATCH_SIZE=20
-TOP_K_SLICES=5
+TOP_K_SLICES=10
 TOTALSEG_FAST=true
 
 # CORS（本地允许所有来源）
@@ -429,11 +429,12 @@ _start_fastapi() {
     # 使用 --env-file 加载本地配置，以 nohup 后台运行
     nohup env $(grep -v '^#' "$ENV_LOCAL_FILE" | grep -v '^$' | xargs) \
         "${VENV_DIR}/bin/uvicorn" app.main:app \
-        --host 127.0.0.1 \
+        --host 0.0.0.0 \
         --port 8000 \
         --workers 1 \
         --loop asyncio \
         --log-level info \
+        --reload \
         > "${LOG_DIR}/fastapi.log" 2> "${LOG_DIR}/fastapi.err" &
 
     echo $! > "$pid_file"
@@ -450,7 +451,10 @@ _start_arq_worker() {
     fi
 
     nohup env $(grep -v '^#' "$ENV_LOCAL_FILE" | grep -v '^$' | xargs) \
-        "${VENV_DIR}/bin/arq" app.workers.arq_worker.WorkerSettings \
+        "${VENV_DIR}/bin/watchfiles" \
+        "--filter" "python" \
+        "arq app.workers.arq_worker.WorkerSettings" \
+        "${SCRIPT_DIR}/app" \
         > "${LOG_DIR}/arq_worker.log" 2> "${LOG_DIR}/arq_worker.err" &
 
     echo $! > "$pid_file"

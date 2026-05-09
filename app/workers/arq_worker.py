@@ -30,6 +30,8 @@ async def run_analysis_pipeline(
     scan_type:      str = "CT",
     clinical_notes: str = "",
     model:          str = "",
+    provider:       str = "",
+    use_llm_cache:  bool = True,
 ):
     """
     ARQ 任务入口：调用 Pipeline 编排器。
@@ -44,6 +46,8 @@ async def run_analysis_pipeline(
         scan_type=scan_type,
         clinical_notes=clinical_notes,
         model=model,
+        provider=provider,
+        use_llm_cache=use_llm_cache,
     )
 
 
@@ -90,3 +94,4 @@ class WorkerSettings:
 
     on_startup  = None
     on_shutdown = None
+

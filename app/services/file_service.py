@@ -159,14 +159,23 @@ class FileService:
 
         return {"upload_id": upload_id, "already_exists": False}
 
-    def save_chunk(self, upload_id: str, chunk_index: int, data: bytes) -> List[int]:
-        """保存单个分片，返回已接收分片列表"""
+    def save_chunk(
+        self,
+        upload_id: str,
+        chunk_index: int,
+        data: bytes,
+        user_id: str = "",
+    ) -> List[int]:
+        """保存单个分片，返回已接收分片列表。user_id 非空时校验归属。"""
         from app.models.upload_session import UploadSession
 
         with SessionLocal() as db:
             session = db.query(UploadSession).filter_by(upload_id=upload_id).first()
             if not session:
                 raise ValueError(f"上传会话 {upload_id} 不存在或已过期")
+            # 归属校验：防止越权写入他人分片
+            if user_id and session.user_id != user_id:
+                raise PermissionError("无权操作该上传会话")
             if not (0 <= chunk_index < session.total_chunks):
                 raise ValueError(
                     f"chunk_index {chunk_index} 超出范围 [0, {session.total_chunks - 1}]"
@@ -183,14 +192,17 @@ class FileService:
         )
         return received
 
-    def get_received_chunks(self, upload_id: str) -> List[int]:
-        """查询已上传分片（断点续传用）"""
+    def get_received_chunks(self, upload_id: str, user_id: str = "") -> List[int]:
+        """查询已上传分片（断点续传用）。user_id 非空时校验归属。"""
         from app.models.upload_session import UploadSession
 
         with SessionLocal() as db:
             session = db.query(UploadSession).filter_by(upload_id=upload_id).first()
             if not session:
                 raise ValueError(f"上传会话 {upload_id} 不存在")
+            # 归属校验
+            if user_id and session.user_id != user_id:
+                raise PermissionError("无权查看该上传会话")
             chunk_dir = session.chunk_dir
 
         return sorted(
@@ -198,8 +210,8 @@ class FileService:
             for p in Path(chunk_dir).glob("chunk_*")
         )
 
-    def complete_upload(self, upload_id: str) -> str:
-        """合并所有分块，校验 SHA256，返回最终文件路径"""
+    def complete_upload(self, upload_id: str, user_id: str = "") -> str:
+        """合并所有分块，校验 SHA256，返回最终文件路径。user_id 非空时校验归属。"""
         from app.models.upload_session import UploadSession
         from app.models.file_record import FileRecord
 
@@ -207,6 +219,9 @@ class FileService:
             session = db.query(UploadSession).filter_by(upload_id=upload_id).first()
             if not session:
                 raise ValueError(f"上传会话 {upload_id} 不存在或已过期，请重新初始化上传")
+            # 归属校验
+            if user_id and session.user_id != user_id:
+                raise PermissionError("无权操作该上传会话")
             # 快照所有字段（避免 session 关闭后访问 detached 对象）
             total_chunks = session.total_chunks
             chunk_dir    = session.chunk_dir
@@ -311,7 +326,8 @@ class DiskGuard:
     def clean_processed_files(self, task_id: str, keep_pngs: bool = True):
         """任务完成后清理中间产物（原始 DICOM + TotalSegmentator 输出）"""
         dicom_dir = self.STORAGE_ROOT / "uploads" / task_id / "extracted"
-        seg_dir   = Path(f"/tmp/seg_{task_id}")
+        # TotalSegmentator 输出目录与 stage3_detector 保持一致（不再使用 /tmp）
+        seg_dir   = self.STORAGE_ROOT / "processed" / task_id / "totalseg_tmp"
 
         for d in [dicom_dir, seg_dir]:
             if d.exists():
