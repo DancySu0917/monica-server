@@ -79,7 +79,10 @@ async def _event_generator(
             logger.info(f"[SSE] 客户端断开连接: task_id={task_id}")
             return
 
+        # 每次轮询都重新获取会话，确保读取最新数据
         with SessionLocal() as db:
+            # 禁用查询缓存，强制从数据库读取最新状态
+            db.expire_all()
             task = db.query(Task).filter_by(
                 task_id=task_id,
                 user_id=user_id

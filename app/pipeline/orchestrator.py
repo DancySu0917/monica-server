@@ -190,13 +190,18 @@ async def run_pipeline(
 # ── 辅助函数 ──────────────────────────────────────────────────────
 
 def _update_task(task_id: str, **kwargs):
+    """更新任务状态（确保事务正确提交）"""
     with SessionLocal() as db:
         task = db.query(Task).filter_by(task_id=task_id).first()
         if not task:
+            logger.warning(f"[Pipeline] _update_task: task_id={task_id} 不存在")
             return
         for k, v in kwargs.items():
             setattr(task, k, v)
+        # 强制刷新并提交，确保其他进程能立即看到更新
+        db.flush()
         db.commit()
+        logger.debug(f"[Pipeline] 任务状态更新: task_id={task_id[:8]}... {kwargs}")
 
 
 def _save_stage_result(task_id: str, stage: str, output_obj):

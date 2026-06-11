@@ -32,7 +32,7 @@ async def _get_arq_pool():
         RedisSettings(
             host=parsed.hostname or "localhost",
             port=parsed.port or 6379,
-            database=int(parsed.path.strip("/") or 0),
+            database=int((parsed.path or "/0").strip("/") or 0),
         )
     )
 
