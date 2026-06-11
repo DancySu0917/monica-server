@@ -3,7 +3,6 @@
 ## 本地开发
 
 ```bash
-chmod +x dev-start.sh
 ./dev-start.sh           # 启动
 ./dev-start.sh stop      # 停止
 ./dev-start.sh restart   # 重启

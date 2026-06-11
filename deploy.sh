@@ -62,7 +62,7 @@ _check_platform
 APP_DIR="/opt/monica-server"
 APP_USER="monica"
 LOG_DIR="/var/log/monica"
-VENV_DIR="${APP_DIR}/.venv"
+VENV_DIR="${APP_DIR}/venv"
 PYTHON_BIN="python3.11"        # 优先使用 3.11，install 步骤会自动安装
 NGINX_CONF_DEST="/etc/nginx/sites-available/monica"
 SUPERVISOR_CONF_DEST="/etc/supervisor/conf.d/monica.conf"
@@ -427,7 +427,7 @@ _write_supervisor_conf() {
 ; ── Monica Medical AI Server - Supervisor 配置 ──────────────
 
 [program:fastapi]
-command=${VENV_DIR}/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --log-level info --no-access-log
+command=${VENV_DIR}/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --loop uvloop --log-level info --no-access-log
 directory=${APP_DIR}
 user=${APP_USER}
 autostart=true
@@ -537,11 +537,10 @@ server {
         proxy_set_header        Host            $host;
         proxy_set_header        X-Real-IP       $remote_addr;
         proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header        Connection      "keep-alive";
+        proxy_set_header        Connection      "";
         proxy_buffering         off;
         proxy_cache             off;
         proxy_read_timeout      650s;
-        proxy_send_timeout      650s;
         add_header              X-Accel-Buffering "no";
         add_header              Cache-Control     "no-cache";
     }
