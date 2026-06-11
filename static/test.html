@@ -266,11 +266,13 @@
       color: var(--text-3);
       transition: color .3s, border-color .3s, background .3s;
     }
+    /* 深色模式（默认）：透明背景，绿色圆点+文字+边框 */
     .status-pill.online {
       color: #4ade80;
       border-color: #1a3d2a;
       background: transparent;
     }
+    /* 浅色模式：淡绿色背景 */
     html.light .status-pill.online {
       color: #22a55a;
       border-color: #b7eacb;
