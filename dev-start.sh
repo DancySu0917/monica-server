@@ -148,7 +148,7 @@ _start_worker() {
     fi
     nohup env $(grep -v '^#' "$ENV_LOCAL" | grep -v '^$' | xargs) \
         "${VENV_DIR}/bin/watchfiles" --filter python \
-        "arq app.workers.arq_worker.WorkerSettings" \
+        "${VENV_DIR}/bin/arq app.workers.arq_worker.WorkerSettings" \
         "${SCRIPT_DIR}/app" \
         > "${LOG_DIR}/arq_worker.log" 2>"${LOG_DIR}/arq_worker.err" &
     echo $! > "$pid_file"
