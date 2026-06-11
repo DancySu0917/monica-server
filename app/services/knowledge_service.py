@@ -82,7 +82,10 @@ class KnowledgeService:
     def _embed(self, text: str) -> np.ndarray:
         """
         获取 text 的 embedding 向量。
-        优先级：L1 内存缓存 → L2 SQLite 缓存 → OpenAI API
+        优先级：L1 内存缓存 → L2 SQLite 缓存 → OpenAI 兼容 embedding API
+
+        注意：embedding 接口需要 LLM_BASE_URL 对应的服务支持 /v1/embeddings。
+        若服务不支持或 LLM_API_KEY 未配置，则抛出异常，由调用方降级处理。
         """
         text_hash = hashlib.sha256(text.encode()).hexdigest()
 
@@ -100,11 +103,15 @@ class KnowledgeService:
             self._embedding_cache[text_hash] = vec
             return vec
 
-        # 调用 OpenAI API（同步 httpx，供 run_in_thread 使用）
+        # 调用 LLM 兼容 embedding 接口（同步 httpx，供 run_in_thread 使用）
+        if not settings.LLM_API_KEY:
+            raise RuntimeError("LLM_API_KEY 未配置，无法调用 embedding 接口")
+
         import httpx
+        base_url = settings.LLM_BASE_URL.rstrip("/")
         resp = httpx.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+            f"{base_url}/embeddings",
+            headers={"Authorization": f"Bearer {settings.LLM_API_KEY}"},
             json={"model": "text-embedding-3-small", "input": text[:4096]},
             timeout=30,
         )
@@ -201,8 +208,6 @@ class KnowledgeService:
                     continue
                 try:
                     item = json.loads(line)
-                    text = item.get("title", "") + " " + item.get("content", "")
-                    vec  = self._embed(text)
 
                     cursor = self.conn.execute(
                         "INSERT INTO knowledge_items (category, title, content, source) "
@@ -216,12 +221,20 @@ class KnowledgeService:
                     )
                     item_id = cursor.lastrowid
 
+                    # 尝试生成 embedding（若不支持则降级为关键词检索，不阻塞导入）
                     if self._vec_available:
-                        self.conn.execute(
-                            "INSERT OR REPLACE INTO knowledge_vec (item_id, embedding) "
-                            "VALUES (?, ?)",
-                            [item_id, json.dumps(vec.tolist())],
-                        )
+                        try:
+                            text = item.get("title", "") + " " + item.get("content", "")
+                            vec  = self._embed(text)
+                            self.conn.execute(
+                                "INSERT OR REPLACE INTO knowledge_vec (item_id, embedding) "
+                                "VALUES (?, ?)",
+                                [item_id, json.dumps(vec.tolist())],
+                            )
+                        except Exception as embed_err:
+                            logger.warning(
+                                f"[Knowledge] 条目 embedding 失败，将使用关键词检索降级: {embed_err}"
+                            )
                     count += 1
                 except Exception as e:
                     logger.warning(f"[Knowledge] 导入条目失败: {e}")

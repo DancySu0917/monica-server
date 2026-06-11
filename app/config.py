@@ -20,19 +20,11 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # LLM 默认模型
-    DEFAULT_MODEL: str = "gpt-5.4-nano"
-
-    # api.b.ai — OpenAI 兼容协议，首选（实测仅 gpt-5.4-nano 免费可用，gemini 系列需充值）
-    BAI_API_KEY: str = ""
-    BAI_BASE_URL: str = "https://api.b.ai/v1"
-
-    # Evolink 代理（OpenAI 兼容协议，api.b.ai 不可用时备用）
-    EVOLINK_API_KEY: str = ""
-    EVOLINK_BASE_URL: str = "https://direct.evolink.ai/v1"
-
-    # Google Gemini 直连（最终兜底，免费层级可用）
-    GEMINI_API_KEY: str = ""
+    # ── LLM 配置（单一后端，OpenAI 兼容协议）──────────────────────
+    # 直接指定 baseurl / apikey / 模型，无降级逻辑
+    LLM_BASE_URL: str = "https://yundou.ai/v1"
+    LLM_API_KEY:  str = ""
+    LLM_MODEL:    str = "gpt-5.4"
 
     # 存储（支持相对路径和绝对路径，最终统一转为绝对路径）
     STORAGE_ROOT: str = "./storage"
@@ -94,8 +86,8 @@ class Settings(BaseSettings):
         warnings = []
         if self.SECRET_KEY in ("change-me-in-production", "your-secret-key-here-min-32-chars-please-change-this"):
             warnings.append("SECRET_KEY 仍为默认值，请立即修改！")
-        if not self.BAI_API_KEY and not self.EVOLINK_API_KEY and not self.GEMINI_API_KEY:
-            warnings.append("BAI_API_KEY / EVOLINK_API_KEY / GEMINI_API_KEY 均未设置，LLM 调用将失败")
+        if not self.LLM_API_KEY:
+            warnings.append("LLM_API_KEY 未设置，LLM 调用将失败")
         if not self.cors_origins:
             warnings.append("ALLOWED_ORIGINS 未设置，所有跨域请求将被拒绝")
         if self.DEV_MODE:

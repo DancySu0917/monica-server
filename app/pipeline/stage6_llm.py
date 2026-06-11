@@ -38,18 +38,16 @@ llm_svc = LLMService()
 async def run_stage6(
     task_id: str,
     payload: LLMPayload,
-    model: str = "",
-    provider: str = "",
 ) -> tuple[AnalysisReport, CoTIntermediateResult]:
     start = time.time()
-    model = model or settings.DEFAULT_MODEL
+    model = settings.LLM_MODEL
 
-    logger.info(f"[Stage6] ===== 开始 CoT 推理（全肺分析）task_id={task_id} model={model} provider={provider or 'auto'} =====")
+    logger.info(f"[Stage6] ===== 开始 CoT 推理（全肺分析）task_id={task_id} model={model} =====")
     logger.info(f"[Stage6] 输入切片数={len(payload.selected_slices)}  结节候选数={len(payload.nodule_description.nodules)}")
 
     # ── Step 1: 并行全肺感知每张切片 ────────────────────────────
     step1_results, step1_tokens = await _step1_perceive(
-        payload.selected_slices, model, provider
+        payload.selected_slices, model
     )
     logger.info(f"[Stage6-Step1] 完成  感知切片数={len(step1_results)}  tokens={step1_tokens}")
     for i, p in enumerate(step1_results):
@@ -76,7 +74,7 @@ async def run_stage6(
 
     # ── Step 2: 跨切片整合（结节 + 其他异常）──────────────────
     step2_nodules, step2_other, step2_tokens = await _step2_integrate(
-        step1_results, payload.nodule_description.model_dump(), model, provider
+        step1_results, payload.nodule_description.model_dump(), model
     )
     logger.info(f"[Stage6-Step2] 完成  整合结节数={len(step2_nodules)}  其他异常={len(step2_other)}  tokens={step2_tokens}")
     for i, n in enumerate(step2_nodules):
@@ -92,7 +90,6 @@ async def run_stage6(
         step2_other=step2_other,
         payload=payload,
         model=model,
-        provider=provider,
     )
 
     cot_snapshot = CoTIntermediateResult(
@@ -111,9 +108,8 @@ async def run_stage6(
 # ── Step 1：全肺感知 ────────────────────────────────────────────
 
 async def _step1_perceive(
-selected_slices: list,
-model: str,
-provider: str = "",
+    selected_slices: list,
+    model: str,
 ) -> tuple[List[SlicePerception], int]:
     """
     并发感知每张切片：全肺扫描模式。
@@ -286,7 +282,6 @@ provider: str = "",
                 model=model,
                 response_format="json_object",
                 temperature=0.1,
-                provider=provider,
             )
             logger.info(f"[Stage6-Step1] 切片 #{rank} LLM原始返回({used_model}): {raw[:300]}")
             perception = parse_llm_response(raw, SlicePerception, fallback_perception)
@@ -313,7 +308,6 @@ async def _step2_integrate(
     perceptions: List[SlicePerception],
     nodule_desc: dict,
     model: str,
-    provider: str = "",
 ) -> tuple[List[NoduleIntegration], List[OtherFindingIntegration], int]:
     """
     跨切片整合：同时整合结节和其他肺部异常。
@@ -407,7 +401,6 @@ async def _step2_integrate(
             model=model,
             response_format="json_object",
             temperature=0.1,
-            provider=provider,
         )
         logger.info(f"[Stage6-Step2] LLM原始返回: {raw[:600]}")
 
@@ -463,7 +456,6 @@ async def _step3_generate_report(
     step2_other: List[OtherFindingIntegration],
     payload: LLMPayload,
     model: str,
-    provider: str = "",
 ) -> tuple[AnalysisReport, int]:
     """生成全面肺部 CT 报告，包含结节 Lung-RADS 和所有其他肺部发现"""
 
@@ -589,7 +581,6 @@ async def _step3_generate_report(
             model=model,
             response_format="json_object",
             temperature=0.2,
-            provider=provider,
         )
         logger.info(f"[Stage6-Step3] LLM原始返回({used_model}) tokens={tokens}: {raw[:800]}")
     except Exception as e:

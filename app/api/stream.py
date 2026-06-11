@@ -54,6 +54,15 @@ async def stream_task_progress(
     )
 
 
+
+# Pipeline 各阶段顺序及对应进度（与 orchestrator.py 保持一致）
+_STAGE_ORDER = ["stage1", "stage2", "stage3", "stage4", "stage5", "stage6", "stage7"]
+_STAGE_PROGRESS = {
+    "stage1": 10, "stage2": 20, "stage3": 40,
+    "stage4": 55, "stage5": 65, "stage6": 90, "stage7": 100,
+}
+
+
 async def _event_generator(
     task_id: str,
     user_id: str,
@@ -62,6 +71,7 @@ async def _event_generator(
     waited = 0
     last_stage = ""
     last_status = ""
+    history_sent = False   # 是否已补发历史进度
 
     while waited < MAX_WAIT_SECONDS:
         # 检测客户端是否断开
@@ -79,11 +89,29 @@ async def _event_generator(
             yield _sse_event("error", {"message": "任务不存在"})
             return
 
+        current_stage  = task.stage  or ""
+        current_status = task.status or ""
+
+        # ── 首次连接：补发历史阶段进度，让前端看到完整进度 ──────
+        if not history_sent:
+            history_sent = True
+            if current_stage in _STAGE_ORDER:
+                cur_idx = _STAGE_ORDER.index(current_stage)
+                # 把已完成的所有前序阶段逐一补发（不含当前阶段）
+                for past_stage in _STAGE_ORDER[:cur_idx]:
+                    yield _sse_event("progress", {
+                        "task_id":  task_id,
+                        "status":   "processing",
+                        "stage":    past_stage,
+                        "progress": _STAGE_PROGRESS.get(past_stage, 0),
+                    })
+                    await asyncio.sleep(0)   # 让出控制权，确保逐条推送
+
         # 状态变化时推送更新（首次连接必然触发，因 last_* 初始为空字符串）
-        changed = (task.stage != last_stage or task.status != last_status)
+        changed = (current_stage != last_stage or current_status != last_status)
         if changed:
-            last_stage  = task.stage  or ""
-            last_status = task.status or ""
+            last_stage  = current_stage
+            last_status = current_status
 
             event_data = {
                 "task_id":  task_id,

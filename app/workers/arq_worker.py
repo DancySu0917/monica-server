@@ -29,8 +29,6 @@ async def run_analysis_pipeline(
     file_path:      str,
     scan_type:      str = "CT",
     clinical_notes: str = "",
-    model:          str = "",
-    provider:       str = "",
     use_llm_cache:  bool = True,
 ):
     """
@@ -45,8 +43,6 @@ async def run_analysis_pipeline(
         file_path=file_path,
         scan_type=scan_type,
         clinical_notes=clinical_notes,
-        model=model,
-        provider=provider,
         use_llm_cache=use_llm_cache,
     )
 

@@ -47,8 +47,6 @@ async def run_pipeline(
     file_path:      str,
     scan_type:      str = "CT",
     clinical_notes: str = "",
-    model:          str = "",
-    provider:       str = "",
     use_llm_cache:  bool = True,
 ) -> None:
     """
@@ -110,7 +108,7 @@ async def run_pipeline(
 
         # 提取 file_hash（upload 时已将文件命名为 SHA-256）
         file_hash = _extract_file_hash(file_path)
-        model_key = model or settings.DEFAULT_MODEL
+        model_key = settings.LLM_MODEL
 
         # ① 查 LLM 缓存
         cached = None
@@ -131,7 +129,7 @@ async def run_pipeline(
             # ③ 未命中：正常调用 LLM（预估配额检查 + 实际修正）
             await _check_quota(user_id)
 
-            report, cot_snapshot = await run_stage6(task_id, stage5, model, provider)
+            report, cot_snapshot = await run_stage6(task_id, stage5)
             _save_stage_result(task_id, "stage6", cot_snapshot)
             _update_task(task_id, stage="stage6", progress=STAGE_PROGRESS["stage6"])
 

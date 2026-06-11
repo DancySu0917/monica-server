@@ -41,8 +41,6 @@ class CreateAnalysisRequest(BaseModel):
     file_id:         str          # complete_upload 返回的 SHA256
     scan_type:       str = "CT"   # CT / MRI / PET
     clinical_notes:  str = ""     # 医生补充说明（可选，最多 500 字符，防 Prompt Injection）
-    model:           str = ""     # 指定模型（空则用默认降级链）
-    provider:        str = ""     # 指定后端：bai / evolink / gemini（空则自动降级）
     idempotency_key: str = ""     # 幂等键（空则自动生成）
     use_llm_cache:   bool = True  # 是否使用 LLM 结果缓存（True=命中缓存直接返回，跳过 Stage6）
 
@@ -68,14 +66,6 @@ class CreateAnalysisRequest(BaseModel):
         if len(v) > 500:
             raise ValueError("clinical_notes 最多 500 个字符，请精简描述")
         return v
-
-    @field_validator("provider")
-    @classmethod
-    def validate_provider(cls, v: str) -> str:
-        allowed = {"", "bai", "evolink", "gemini"}
-        if v.lower() not in allowed:
-            raise ValueError(f"provider 必须为 {allowed} 之一")
-        return v.lower()
 
 
 class CreateAnalysisResponse(BaseModel):
@@ -104,19 +94,25 @@ async def create_analysis(
     with SessionLocal() as db:
         existing = db.query(Task).filter_by(idempotency_key=idempotency_key).first()
         if existing:
-            # pending 超过 5 分钟视为僵死任务（入队失败但状态未更新），自动释放
-            PENDING_TIMEOUT = timedelta(minutes=5)
-            is_stale_pending = (
-                existing.status == "pending"
-                and existing.created_at is not None
-                and datetime.now(timezone.utc) - existing.created_at.replace(tzinfo=timezone.utc) > PENDING_TIMEOUT
+            # pending 超过 5 分钟 / processing 超过 20 分钟视为僵死任务，自动释放
+            PENDING_TIMEOUT    = timedelta(minutes=5)
+            PROCESSING_TIMEOUT = timedelta(minutes=20)
+            now_utc = datetime.now(timezone.utc)
+            created = existing.created_at.replace(tzinfo=timezone.utc) if existing.created_at else now_utc
+
+            is_stale = (
+                (existing.status == "pending"    and now_utc - created > PENDING_TIMEOUT)
+                or
+                (existing.status == "processing" and now_utc - created > PROCESSING_TIMEOUT)
             )
-            if is_stale_pending:
+            if is_stale:
                 existing.status = "error"
-                existing.error_message = "任务入队超时，自动释放"
+                existing.error_message = "任务执行超时（worker 可能已重启），自动释放"
                 existing.idempotency_key = f"__old__{existing.task_id}"
                 db.commit()
-                logger.warning(f"[Analysis] 任务 {existing.task_id} pending 超时，已自动释放幂等键")
+                logger.warning(
+                    f"[Analysis] 任务 {existing.task_id} 状态={existing.status} 超时，已自动释放幂等键"
+                )
             # 只复用"进行中"的任务，避免重复入队
             # done/error/failed/rejected 都允许重新提交（用户可以重跑）
             elif existing.status in ("pending", "processing"):
@@ -144,7 +140,7 @@ async def create_analysis(
 
     # 创建任务记录
     task_id = str(uuid.uuid4())
-    model   = body.model or settings.DEFAULT_MODEL
+    model   = settings.LLM_MODEL
 
     task = Task(
         task_id=task_id,
@@ -167,8 +163,6 @@ async def create_analysis(
             file_path=file_path,
             scan_type=body.scan_type,
             clinical_notes=body.clinical_notes,
-            model=model,
-            provider=body.provider,
             use_llm_cache=body.use_llm_cache,
         )
     except Exception as e:
