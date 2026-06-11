@@ -15,10 +15,10 @@
 #   sudo ./deploy.sh uninstall # 卸载服务（保留数据）
 #
 # 部署后目录结构：
-#   /opt/monica-server/         ← 应用代码
-#   /opt/monica-server/venv/    ← Python 虚拟环境
-#   /opt/monica-server/storage/ ← 文件存储（DICOM / 切片 / 导出）
-#   /opt/monica-server/db/      ← SQLite 数据库
+#   /www/wwwroot/monica-server/         ← 应用代码
+#   /www/wwwroot/monica-server/venv/    ← Python 虚拟环境
+#   /www/wwwroot/monica-server/storage/ ← 文件存储（DICOM / 切片 / 导出）
+#   /www/wwwroot/monica-server/db/      ← SQLite 数据库
 #   /var/log/monica/            ← 日志文件
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -59,7 +59,7 @@ _check_platform() {
 _check_platform
 
 # ── 配置（按需修改）─────────────────────────────────────────────
-APP_DIR="/opt/monica-server"
+APP_DIR="/www/wwwroot/monica-server"
 APP_USER="monica"
 LOG_DIR="/var/log/monica"
 VENV_DIR="${APP_DIR}/venv"
@@ -488,7 +488,7 @@ server {
 
     # 微信小程序域名验证
     location = /MP_verify_xxxxxx.txt {
-        alias /opt/monica-server/static/MP_verify_xxxxxx.txt;
+        alias /www/wwwroot/monica-server/static/MP_verify_xxxxxx.txt;
     }
 
     # 鉴权接口
